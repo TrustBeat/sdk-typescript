@@ -8,6 +8,9 @@
 import { describe, it, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { writeFile, unlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
   TrustBeat,
@@ -290,5 +293,89 @@ describe("error handling", () => {
 
   it("empty apiKey throws Error", () => {
     assert.throws(() => new TrustBeat({ apiKey: "" }), /apiKey/);
+  });
+});
+
+// ── anchorFile() ──────────────────────────────────────────────────────────────
+
+describe("anchorFile", () => {
+  afterEach(restoreFetch);
+
+  async function withTempFile(content, fn) {
+    const path = join(tmpdir(), `tb-test-${Date.now()}-${Math.random().toString(36).slice(2)}.bin`);
+    await writeFile(path, content);
+    try {
+      return await fn(path);
+    } finally {
+      await unlink(path).catch(() => {});
+    }
+  }
+
+  it("hashes file content and submits correct SHA-256", async () => {
+    const content = Buffer.from("hello trustbeat");
+    const expectedHash = createHash("sha256").update(content).digest("hex");
+    let capturedBody;
+    globalThis.fetch = async (_url, opts) => {
+      capturedBody = JSON.parse(opts.body);
+      return { ok: true, status: 202, text: async () => JSON.stringify(anchorAcceptedPayload("track-f1")) };
+    };
+
+    await withTempFile(content, async (path) => {
+      const job = await new TrustBeat({ apiKey: "tb_live_test" }).anchorFile(path);
+      assert.equal(job.id, "track-f1");
+    });
+
+    assert.equal(capturedBody.hash, expectedHash);
+  });
+
+  it("description defaults to the filename", async () => {
+    let capturedBody;
+    globalThis.fetch = async (_url, opts) => {
+      capturedBody = JSON.parse(opts.body);
+      return { ok: true, status: 202, text: async () => JSON.stringify(anchorAcceptedPayload()) };
+    };
+
+    await withTempFile(Buffer.from("data"), async (path) => {
+      await new TrustBeat({ apiKey: "tb_live_test" }).anchorFile(path);
+      assert.ok(capturedBody.description.endsWith(".bin"));
+    });
+  });
+
+  it("custom description overrides filename", async () => {
+    let capturedBody;
+    globalThis.fetch = async (_url, opts) => {
+      capturedBody = JSON.parse(opts.body);
+      return { ok: true, status: 202, text: async () => JSON.stringify(anchorAcceptedPayload()) };
+    };
+
+    await withTempFile(Buffer.from("data"), async (path) => {
+      await new TrustBeat({ apiKey: "tb_live_test" }).anchorFile(path, { description: "my-doc" });
+    });
+
+    assert.equal(capturedBody.description, "my-doc");
+  });
+
+  it("clientRef is forwarded", async () => {
+    let capturedBody;
+    globalThis.fetch = async (_url, opts) => {
+      capturedBody = JSON.parse(opts.body);
+      return { ok: true, status: 202, text: async () => JSON.stringify(anchorAcceptedPayload()) };
+    };
+
+    await withTempFile(Buffer.from("data"), async (path) => {
+      await new TrustBeat({ apiKey: "tb_live_test" }).anchorFile(path, { clientRef: "ref-99" });
+    });
+
+    assert.equal(capturedBody.client_ref, "ref-99");
+  });
+
+  it("hashFile produces same digest as node:crypto", async () => {
+    const content = Buffer.from("deterministic content 42");
+    const expected = createHash("sha256").update(content).digest("hex");
+
+    await withTempFile(content, async (path) => {
+      const hash = await TrustBeat.hashFile(path);
+      assert.equal(hash, expected);
+    });
   });
 });

@@ -4,6 +4,9 @@
  * Zero runtime dependencies — uses globalThis.fetch (Node 18+ / browser).
  */
 
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { basename } from "node:path";
 import {
   TrustBeatError,
   AuthError,
@@ -200,6 +203,43 @@ export class TrustBeat {
    */
   async verify(proof: AnchorProof): Promise<boolean> {
     return verifyProof(proof);
+  }
+
+  // ── File helpers (Node.js only) ────────────────────────────────────────────
+
+  /**
+   * SHA-256 hash of a local file, returned as a lowercase hex string.
+   * The file is never uploaded — only the digest is sent to the API.
+   * Requires Node.js (uses node:fs/promises + node:crypto).
+   */
+  static async hashFile(path: string): Promise<string> {
+    const buf = await readFile(path);
+    return createHash("sha256").update(buf).digest("hex");
+  }
+
+  /**
+   * Hash a local file with SHA-256 and submit it for anchoring.
+   * `description` defaults to the filename if not provided.
+   * Requires Node.js.
+   */
+  async anchorFile(path: string, options: AnchorOptions = {}): Promise<AnchorJob> {
+    const hash = await TrustBeat.hashFile(path);
+    const desc = options.description ?? basename(path);
+    return this.anchor(hash, { ...options, description: desc });
+  }
+
+  /**
+   * Hash a local file, submit for anchoring, and wait for the proof.
+   * Convenience wrapper around anchorFile() + anchorWait().
+   * Requires Node.js.
+   */
+  async anchorFileWait(
+    path: string,
+    options: AnchorOptions = {},
+    waitOptions: AnchorWaitOptions = {},
+  ): Promise<AnchorProof> {
+    const job = await this.anchorFile(path, options);
+    return this.anchorWait(job.id, waitOptions);
   }
 
   /**
