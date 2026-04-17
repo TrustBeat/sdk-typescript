@@ -83,6 +83,14 @@ export interface AiDecisionMetadata {
   operatorId?: string;
   /** Deployment environment: "production", "staging", "testing". */
   deploymentEnv?: string;
+  /** Operator's own case/record ID — links proof to a specific decision (Art. 12 traceability). */
+  externalRef?: string;
+  /** Semantic result of the decision, e.g. "rejected". No PII stored. */
+  decisionOutcome?: string;
+  /** SHA-256 hex of the deployed model weights/checkpoint. */
+  modelArtifactHash?: string;
+  /** Category of data subject, e.g. "job_applicant". */
+  dataSubjectCategory?: string;
 }
 
 /** Returned immediately (202) when an AI decision is enqueued for anchoring. */
@@ -195,9 +203,13 @@ export function parseAiDecisionProof(data: any): AiDecisionProof {
       startedAt:   m.time_envelope.started_at,
       completedAt: m.time_envelope.completed_at,
     },
-    modelVersion:  m.model_version ?? undefined,
-    operatorId:    m.operator_id   ?? undefined,
-    deploymentEnv: m.deployment_env ?? undefined,
+    modelVersion:        m.model_version         ?? undefined,
+    operatorId:          m.operator_id           ?? undefined,
+    deploymentEnv:       m.deployment_env        ?? undefined,
+    externalRef:         m.external_ref          ?? undefined,
+    decisionOutcome:     m.decision_outcome      ?? undefined,
+    modelArtifactHash:   m.model_artifact_hash   ?? undefined,
+    dataSubjectCategory: m.data_subject_category ?? undefined,
   };
   return {
     id:                 data.id,

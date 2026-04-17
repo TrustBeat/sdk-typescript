@@ -276,9 +276,13 @@ export class TrustBeat {
           started_at: metadata.timeEnvelope.startedAt,
           completed_at: metadata.timeEnvelope.completedAt,
         },
-        ...(metadata.modelVersion   ? { model_version:   metadata.modelVersion }   : {}),
-        ...(metadata.operatorId     ? { operator_id:     metadata.operatorId }     : {}),
-        ...(metadata.deploymentEnv  ? { deployment_env:  metadata.deploymentEnv }  : {}),
+        ...(metadata.modelVersion        ? { model_version:         metadata.modelVersion }        : {}),
+        ...(metadata.operatorId          ? { operator_id:           metadata.operatorId }          : {}),
+        ...(metadata.deploymentEnv       ? { deployment_env:        metadata.deploymentEnv }       : {}),
+        ...(metadata.externalRef         ? { external_ref:          metadata.externalRef }         : {}),
+        ...(metadata.decisionOutcome     ? { decision_outcome:      metadata.decisionOutcome }     : {}),
+        ...(metadata.modelArtifactHash   ? { model_artifact_hash:   metadata.modelArtifactHash }   : {}),
+        ...(metadata.dataSubjectCategory ? { data_subject_category: metadata.dataSubjectCategory } : {}),
       },
     };
     if (options.callbackUrl) body.callback_url = options.callbackUrl;
