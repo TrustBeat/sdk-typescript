@@ -22,10 +22,10 @@ export class AuthError extends TrustBeatError {
   }
 }
 
-/** 404 — tracking ID not found. */
+/** 404 — tracking ID not found (or not yet anchored — check code for "NOT_ANCHORED"). */
 export class NotFoundError extends TrustBeatError {
-  constructor(message: string) {
-    super(message, 404, "NOT_FOUND");
+  constructor(message: string, code = "NOT_FOUND") {
+    super(message, 404, code);
     this.name = "NotFoundError";
   }
 }

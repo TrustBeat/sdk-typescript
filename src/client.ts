@@ -18,9 +18,14 @@ import {
   AnchorJob,
   AnchorProof,
   TimestampResult,
+  AiDecisionMetadata,
+  AiDecisionJob,
+  AiDecisionProof,
   parseAnchorJob,
   parseProof,
   parseTimestamp,
+  parseAiDecisionJob,
+  parseAiDecisionProof,
   looksLikeProof,
 } from "./models.js";
 import { verifyProof } from "./verify.js";
@@ -111,7 +116,8 @@ export class TrustBeat {
       switch (response.status) {
         case 401: throw new AuthError(msg);
         case 402: throw new QuotaError(msg);
-        case 404: throw new NotFoundError(msg);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        case 404: throw new NotFoundError(msg, (data as any)?.error?.code ?? "NOT_FOUND");
         case 429: throw new RateLimitError(msg);
         default:  throw new TrustBeatError(msg, response.status);
       }
@@ -240,6 +246,86 @@ export class TrustBeat {
   ): Promise<AnchorProof> {
     const job = await this.anchorFile(path, options);
     return this.anchorWait(job.id, waitOptions);
+  }
+
+  // ── AI Act Audit Anchoring ─────────────────────────────────────────────────
+
+  /**
+   * Submit an AI decision for EU AI Act Article 12 anchoring.
+   *
+   * Privacy-safe: only hashes are sent — raw model inputs and outputs are never uploaded.
+   * Returns immediately with a tracking ID. Use getAiDecisionProof() or
+   * anchorAiDecisionWait() to retrieve the proof once anchored (~10 minutes).
+   */
+  async anchorAiDecision(
+    inputHash: string,
+    outputHash: string,
+    metadata: AiDecisionMetadata,
+    options: { callbackUrl?: string } = {},
+  ): Promise<AiDecisionJob> {
+    const body: Record<string, unknown> = {
+      input_hash: inputHash,
+      output_hash: outputHash,
+      metadata: {
+        model_id: metadata.modelId,
+        system_name: metadata.systemName,
+        risk_category: metadata.riskCategory,
+        decision_type: metadata.decisionType,
+        human_oversight: metadata.humanOversight,
+        time_envelope: {
+          started_at: metadata.timeEnvelope.startedAt,
+          completed_at: metadata.timeEnvelope.completedAt,
+        },
+        ...(metadata.modelVersion   ? { model_version:   metadata.modelVersion }   : {}),
+        ...(metadata.operatorId     ? { operator_id:     metadata.operatorId }     : {}),
+        ...(metadata.deploymentEnv  ? { deployment_env:  metadata.deploymentEnv }  : {}),
+      },
+    };
+    if (options.callbackUrl) body.callback_url = options.callbackUrl;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = await this.request<any>("POST", "/ai/decisions/anchor", body);
+    return parseAiDecisionJob(data);
+  }
+
+  /**
+   * Retrieve the verification result for a previously submitted AI decision.
+   * Returns null if the decision is still pending (not yet anchored).
+   * Throws NotFoundError if the tracking ID is unknown.
+   */
+  async getAiDecisionProof(trackingId: string): Promise<AiDecisionProof | null> {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = await this.request<any>("GET", `/ai/decisions/verify/${encodeURIComponent(trackingId)}`);
+      return parseAiDecisionProof(data);
+    } catch (err) {
+      if (err instanceof NotFoundError && err.code === "NOT_ANCHORED") return null;
+      throw err;
+    }
+  }
+
+  /**
+   * Poll until the AI decision proof is ready, then return it.
+   * Throws TimeoutError if not ready within timeoutSecs (default 660).
+   */
+  async anchorAiDecisionWait(
+    trackingId: string,
+    options: AnchorWaitOptions = {},
+  ): Promise<AiDecisionProof> {
+    const timeoutSecs = options.timeoutSecs ?? 660;
+    const pollIntervalSecs = options.pollIntervalSecs ?? 15;
+    const deadline = Date.now() + timeoutSecs * 1000;
+
+    while (true) {
+      const proof = await this.getAiDecisionProof(trackingId);
+      if (proof !== null) return proof;
+      if (Date.now() >= deadline) {
+        throw Object.assign(
+          new Error(`anchorAiDecisionWait timed out after ${timeoutSecs}s`),
+          { name: "TimeoutError" },
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalSecs * 1000));
+    }
   }
 
   /**
