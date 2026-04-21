@@ -21,11 +21,17 @@ import {
   AiDecisionMetadata,
   AiDecisionJob,
   AiDecisionProof,
+  VerificationReport,
+  VerificationJob,
+  CertificateValidationResult,
   parseAnchorJob,
   parseProof,
   parseTimestamp,
   parseAiDecisionJob,
   parseAiDecisionProof,
+  parseVerificationReport,
+  parseVerificationJob,
+  parseCertValidationResult,
   looksLikeProof,
 } from "./models.js";
 import { verifyProof } from "./verify.js";
@@ -330,6 +336,81 @@ export class TrustBeat {
       }
       await new Promise((resolve) => setTimeout(resolve, pollIntervalSecs * 1000));
     }
+  }
+
+  // ── Signature & certificate verification ──────────────────────────────────
+
+  /**
+   * Verify eIDAS electronic signatures on a document.
+   *
+   * Validates PAdES (PDF), CAdES (CMS), or XAdES (XML) signatures against
+   * the EU Trusted List. Returns a full report with per-signature details
+   * and a top-level verdict.
+   *
+   * @param documentBytes - Raw document bytes.
+   * @param format - Signature format: "pades" | "cades" | "xades".
+   * @param callbackUrl - Optional webhook URL.
+   */
+  async verifySignature(
+    documentBytes: Uint8Array | Buffer,
+    format: "pades" | "cades" | "xades",
+    options: { callbackUrl?: string } = {},
+  ): Promise<VerificationReport> {
+    const body: Record<string, unknown> = {
+      document_base64: Buffer.from(documentBytes).toString("base64"),
+      format,
+    };
+    if (options.callbackUrl) body.callback_url = options.callbackUrl;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = await this.request<any>("POST", "/verify/signature", body);
+    return parseVerificationReport(data);
+  }
+
+  /**
+   * Verify eIDAS signatures and anchor the verification event.
+   *
+   * Returns immediately (202 Accepted) with a tracking ID. The verification
+   * event is queued for Merkle batch anchoring. Use getVerification() to
+   * retrieve the completed report.
+   *
+   * @param documentBytes - Raw document bytes.
+   * @param format - Signature format: "pades" | "cades" | "xades".
+   * @param callbackUrl - Optional webhook URL called when anchoring completes.
+   */
+  async verifyAndAnchor(
+    documentBytes: Uint8Array | Buffer,
+    format: "pades" | "cades" | "xades",
+    options: { callbackUrl?: string } = {},
+  ): Promise<VerificationJob> {
+    const body: Record<string, unknown> = {
+      document_base64: Buffer.from(documentBytes).toString("base64"),
+      format,
+    };
+    if (options.callbackUrl) body.callback_url = options.callbackUrl;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = await this.request<any>("POST", "/verify/signature/anchored", body);
+    return parseVerificationJob(data);
+  }
+
+  /**
+   * Retrieve a saved verification report by tracking ID.
+   */
+  async getVerification(trackingId: string): Promise<VerificationReport> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = await this.request<any>("GET", `/verify/${encodeURIComponent(trackingId)}`);
+    return parseVerificationReport(data);
+  }
+
+  /**
+   * Validate a standalone X.509 certificate against the EU Trusted List.
+   *
+   * @param certBytes - DER- or PEM-encoded certificate bytes.
+   */
+  async validateCertificate(certBytes: Uint8Array | Buffer): Promise<CertificateValidationResult> {
+    const body = { certificate_base64: Buffer.from(certBytes).toString("base64") };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = await this.request<any>("POST", "/validate/certificate", body);
+    return parseCertValidationResult(data);
   }
 
   /**

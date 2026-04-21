@@ -8,7 +8,11 @@
 export { TrustBeat } from "./client.js";
 export type { TrustBeatOptions, AnchorOptions, AnchorWaitOptions } from "./client.js";
 
-export type { AnchorJob, AnchorProof, TimestampResult, ProofStep } from "./models.js";
+export type {
+  AnchorJob, AnchorProof, TimestampResult, ProofStep,
+  SignatureDetail, VerificationReport, VerificationJob, CertificateValidationResult,
+  SignatureVerdict,
+} from "./models.js";
 
 export {
   TrustBeatError,

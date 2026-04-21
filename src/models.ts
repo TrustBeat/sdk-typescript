@@ -228,3 +228,125 @@ export function parseAiDecisionProof(data: any): AiDecisionProof {
 export function looksLikeProof(data: any): boolean {
   return data && typeof data.merkle_root === "string";
 }
+
+// ── Verification types ────────────────────────────────────────────────────────
+
+export type SignatureVerdict =
+  | "QUALIFIED_VALID" | "ADVANCED_VALID" | "VALID_NO_TIMESTAMP"
+  | "REVOKED" | "EXPIRED_AT_SIGNING" | "CHAIN_BROKEN" | "TAMPERED" | "INVALID";
+
+export interface SignatureDetail {
+  index: number;
+  signerName:       string | null;
+  signerEmail:      string | null;
+  signingTime:      string | null;
+  certSerial:       string | null;
+  certFingerprint:  string | null;
+  certIssuer:       string | null;
+  qualified:        boolean;
+  onEutl:           boolean;
+  qscd:             boolean;
+  revocationStatus: string;
+  revocationTime:   string | null;
+  ocspResponse:     string | null;
+  signatureLevel:   string;
+  timestampPresent: boolean;
+  timestampSerial:  string | null;
+  verdict:          SignatureVerdict;
+}
+
+export interface VerificationReport {
+  verdict:      SignatureVerdict;
+  signatures:   SignatureDetail[];
+  documentHash: string;
+  checkedAt:    string;
+  eutlVersion:  string | null;
+  trackingId:   string | null;
+}
+
+export interface VerificationJob {
+  trackingId:   string;
+  documentHash: string;
+  status:       "pending";
+  submittedAt:  string;
+}
+
+export interface CertificateValidationResult {
+  subject:          string;
+  issuer:           string;
+  serial:           string;
+  notBefore:        string;
+  notAfter:         string;
+  qualified:        boolean;
+  onEutl:           boolean;
+  qscd:             boolean;
+  revocationStatus: string;
+  revocationTime:   string | null;
+  keyUsage:         string[];
+  valid:            boolean;
+  validatedAt:      string;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function parseSignatureDetail(d: any): SignatureDetail {
+  return {
+    index:            d.index,
+    signerName:       d.signer_name      ?? null,
+    signerEmail:      d.signer_email     ?? null,
+    signingTime:      d.signing_time     ?? null,
+    certSerial:       d.cert_serial      ?? null,
+    certFingerprint:  d.cert_fingerprint ?? null,
+    certIssuer:       d.cert_issuer      ?? null,
+    qualified:        d.qualified,
+    onEutl:           d.on_eutl,
+    qscd:             d.qscd,
+    revocationStatus: d.revocation_status,
+    revocationTime:   d.revocation_time  ?? null,
+    ocspResponse:     d.ocsp_response    ?? null,
+    signatureLevel:   d.signature_level,
+    timestampPresent: d.timestamp_present,
+    timestampSerial:  d.timestamp_serial ?? null,
+    verdict:          d.verdict,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function parseVerificationReport(d: any): VerificationReport {
+  return {
+    verdict:      d.verdict,
+    signatures:   (d.signatures ?? []).map(parseSignatureDetail),
+    documentHash: d.document_hash,
+    checkedAt:    d.checked_at,
+    eutlVersion:  d.eutl_version  ?? null,
+    trackingId:   d.tracking_id   ?? null,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function parseVerificationJob(d: any): VerificationJob {
+  return {
+    trackingId:   d.tracking_id,
+    documentHash: d.document_hash,
+    status:       d.status,
+    submittedAt:  d.submitted_at,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function parseCertValidationResult(d: any): CertificateValidationResult {
+  return {
+    subject:          d.subject,
+    issuer:           d.issuer,
+    serial:           d.serial,
+    notBefore:        d.not_before,
+    notAfter:         d.not_after,
+    qualified:        d.qualified,
+    onEutl:           d.on_eutl,
+    qscd:             d.qscd,
+    revocationStatus: d.revocation_status,
+    revocationTime:   d.revocation_time ?? null,
+    keyUsage:         d.key_usage        ?? [],
+    valid:            d.valid,
+    validatedAt:      d.validated_at,
+  };
+}
