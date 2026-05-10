@@ -17,7 +17,6 @@ import {
 import {
   AnchorJob,
   AnchorProof,
-  TimestampResult,
   AiDecisionMetadata,
   AiDecisionJob,
   AiDecisionProof,
@@ -26,7 +25,6 @@ import {
   CertificateValidationResult,
   parseAnchorJob,
   parseProof,
-  parseTimestamp,
   parseAiDecisionJob,
   parseAiDecisionProof,
   parseVerificationReport,
@@ -413,20 +411,4 @@ export class TrustBeat {
     return parseCertValidationResult(data);
   }
 
-  /**
-   * Request a direct (non-Merkle) qualified timestamp for a single hash.
-   * Returns the full TimestampResult including the RFC 3161 token bytes.
-   */
-  async timestamp(hash: string, options: AnchorOptions = {}): Promise<TimestampResult> {
-    const body: Record<string, unknown> = {
-      hash,
-      hash_algorithm: "sha256",
-    };
-    if (options.clientRef) body.client_ref = options.clientRef;
-    if (options.description) body.description = options.description;
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data = await this.request<any>("POST", "/timestamps", body);
-    return parseTimestamp(data);
-  }
 }

@@ -41,19 +41,6 @@ export interface AnchorProof {
   description: string | null;
 }
 
-/** Result of a direct timestamp() call (non-Merkle, single-hash). */
-export interface TimestampResult {
-  id: string;
-  hash: string;
-  hashAlgorithm: string;
-  /** Raw DER-encoded RFC 3161 TimeStampToken bytes. */
-  token: Uint8Array;
-  tokenFormat: string;
-  tsaSerial: string;
-  provider: string;
-  timestampedAt: string;
-}
-
 // ── AI Act Audit models ───────────────────────────────────────────────────────
 
 /** Time window of a single AI inference call. */
@@ -159,20 +146,6 @@ export function parseProof(data: any): AnchorProof {
     anchoredAt: data.anchored_at,
     clientRef: data.client_ref ?? null,
     description: data.description ?? null,
-  };
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function parseTimestamp(data: any): TimestampResult {
-  return {
-    id: data.id,
-    hash: data.hash,
-    hashAlgorithm: data.hash_algorithm,
-    token: b64ToUint8Array(data.token),
-    tokenFormat: data.token_format,
-    tsaSerial: data.tsa_serial,
-    provider: data.provider,
-    timestampedAt: data.timestamped_at,
   };
 }
 
