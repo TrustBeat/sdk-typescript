@@ -28,9 +28,6 @@ const valid = tb.verify(proof);
 const job = await tb.anchor("e3b0c44298fc1c149afb4c8996fb92427ae41e4649b934ca495991b7852b855");
 const waited = await tb.anchorWait(job.id);  // polls up to 11 min
 
-// Direct qualified timestamp (1 credit, instant)
-const ts = await tb.timestamp("e3b0c44298fc1c149afb4c8996fb92427ae41e4649b934ca495991b7852b855");
-// ts.token is a Buffer containing the RFC 3161 DER token
 ```
 
 ## Requirements
