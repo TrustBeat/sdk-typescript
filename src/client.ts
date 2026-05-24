@@ -17,6 +17,8 @@ import {
 import {
   AnchorJob,
   AnchorProof,
+  BatchSubmission,
+  BatchStatus,
   AiDecisionMetadata,
   AiDecisionJob,
   AiDecisionProof,
@@ -25,6 +27,8 @@ import {
   CertificateValidationResult,
   parseAnchorJob,
   parseProof,
+  parseBatchSubmission,
+  parseBatchStatus,
   parseAiDecisionJob,
   parseAiDecisionProof,
   parseVerificationReport,
@@ -151,10 +155,10 @@ export class TrustBeat {
 
   /**
    * Submit up to 100 SHA-256 hashes in a single batch request.
-   * Returns an empty array immediately for an empty input.
+   * Returns a BatchSubmission with a submission_id grouping all items.
    */
-  async anchorBatch(hashes: string[], options: AnchorOptions = {}): Promise<AnchorJob[]> {
-    if (hashes.length === 0) return [];
+  async anchorBatch(hashes: string[], options: AnchorOptions = {}): Promise<BatchSubmission> {
+    if (hashes.length === 0) return { submissionId: "", items: [] };
     if (hashes.length > 100) {
       throw new Error("anchorBatch: maximum 100 hashes per request");
     }
@@ -166,8 +170,54 @@ export class TrustBeat {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data = await this.request<any>("POST", "/anchors/batch", body);
+    return parseBatchSubmission(data);
+  }
+
+  /**
+   * Return anchored/pending counts for a batch submission.
+   */
+  async getBatchStatus(submissionId: string): Promise<BatchStatus> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (data.accepted as any[]).map(parseAnchorJob);
+    const data = await this.request<any>("GET", `/anchors/batch/${encodeURIComponent(submissionId)}/status`);
+    return parseBatchStatus(data);
+  }
+
+  /**
+   * Return all anchored inclusion proofs for a batch submission.
+   */
+  async getBatchProofs(submissionId: string): Promise<AnchorProof[]> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = await this.request<any>("GET", `/anchors/batch/${encodeURIComponent(submissionId)}/proofs`);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (data.proofs ?? []).map((p: any) => parseProof(p));
+  }
+
+  /**
+   * Poll until all hashes in a batch submission are anchored, then return all proofs.
+   * Accepts either a BatchSubmission object or a raw submission_id string.
+   */
+  async anchorBatchWait(
+    submission: BatchSubmission | string,
+    options: AnchorWaitOptions = {},
+  ): Promise<AnchorProof[]> {
+    const submissionId = typeof submission === "string" ? submission : submission.submissionId;
+    const timeoutSecs = options.timeoutSecs ?? 900;
+    const pollIntervalSecs = options.pollIntervalSecs ?? 15;
+    const deadline = Date.now() + timeoutSecs * 1000;
+
+    while (true) {
+      const status = await this.getBatchStatus(submissionId);
+      if (status.pending === 0 && status.total > 0) {
+        return this.getBatchProofs(submissionId);
+      }
+      if (Date.now() >= deadline) {
+        throw Object.assign(
+          new Error(`anchorBatchWait timed out after ${timeoutSecs}s for submission ${submissionId}`),
+          { name: "TimeoutError" },
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalSecs * 1000));
+    }
   }
 
   /**

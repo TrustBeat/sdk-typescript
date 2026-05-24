@@ -41,6 +41,20 @@ export interface AnchorProof {
   description: string | null;
 }
 
+/** Returned by anchorBatch() — groups all submitted items under one submission_id. */
+export interface BatchSubmission {
+  submissionId: string;
+  items: AnchorJob[];
+}
+
+/** Returned by getBatchStatus(). */
+export interface BatchStatus {
+  submissionId: string;
+  total: number;
+  anchored: number;
+  pending: number;
+}
+
 // ── AI Act Audit models ───────────────────────────────────────────────────────
 
 /** Time window of a single AI inference call. */
@@ -146,6 +160,25 @@ export function parseProof(data: any): AnchorProof {
     anchoredAt: data.anchored_at,
     clientRef: data.client_ref ?? null,
     description: data.description ?? null,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function parseBatchSubmission(data: any): BatchSubmission {
+  return {
+    submissionId: data.submission_id,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    items: (data.accepted ?? []).map((item: any) => parseAnchorJob(item)),
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function parseBatchStatus(data: any): BatchStatus {
+  return {
+    submissionId: data.submission_id,
+    total:    data.total,
+    anchored: data.anchored,
+    pending:  data.pending,
   };
 }
 
