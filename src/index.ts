@@ -12,6 +12,7 @@ export type {
   AnchorJob, AnchorProof, ProofStep,
   SignatureDetail, VerificationReport, VerificationJob, CertificateValidationResult,
   SignatureVerdict,
+  AuditProofStep, AuditEvent, AuditEventProof, AuditExportJob,
 } from "./models.js";
 
 export {

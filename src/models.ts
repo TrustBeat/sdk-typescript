@@ -356,3 +356,84 @@ export function parseCertValidationResult(d: any): CertificateValidationResult {
     validatedAt:      d.validated_at,
   };
 }
+
+// ── Audit Trail ───────────────────────────────────────────────────────────────
+
+/** One step in an audit event Merkle inclusion proof. */
+export interface AuditProofStep {
+  sibling: string;   // hex-encoded sibling hash
+  side: "left" | "right";
+}
+
+/** A single audit event as returned by the list endpoint. */
+export interface AuditEvent {
+  eventId:       string;
+  trailCategory: string;
+  actor:         string;
+  action:        string;
+  ts:            string;         // ISO 8601 — when the event occurred
+  receivedAt:    string;         // ISO 8601 — when TrustBeat received it
+  anchored:      boolean;
+  system:        string | null;
+  resource:      string | null;
+}
+
+/** Full Merkle inclusion proof for an anchored audit event. */
+export interface AuditEventProof {
+  eventId:       string;
+  canonicalHash: string;
+  batchId:       string;
+  leafIndex:     number;
+  merklePath:    AuditProofStep[];
+  anchoredAt:    string;         // ISO 8601
+}
+
+/** Returned immediately (202) when an export job is created. */
+export interface AuditExportJob {
+  jobId:       string;
+  status:      "pending" | "processing" | "ready" | "failed";
+  eventCount?: number;
+  error?:      string;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function parseAuditProofStep(d: any): AuditProofStep {
+  return { sibling: d.sibling, side: d.side };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function parseAuditEvent(d: any): AuditEvent {
+  return {
+    eventId:       d.event_id,
+    trailCategory: d.trail_category,
+    actor:         d.actor,
+    action:        d.action,
+    ts:            d.ts,
+    receivedAt:    d.received_at,
+    anchored:      d.anchored,
+    system:        d.system   ?? null,
+    resource:      d.resource ?? null,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function parseAuditEventProof(d: any): AuditEventProof {
+  return {
+    eventId:       d.event_id,
+    canonicalHash: d.canonical_hash,
+    batchId:       d.batch_id,
+    leafIndex:     d.leaf_index,
+    merklePath:    (d.merkle_path ?? []).map(parseAuditProofStep),
+    anchoredAt:    d.anchored_at,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function parseAuditExportJob(d: any): AuditExportJob {
+  return {
+    jobId:       d.job_id,
+    status:      d.status,
+    eventCount:  d.event_count,
+    error:       d.error,
+  };
+}

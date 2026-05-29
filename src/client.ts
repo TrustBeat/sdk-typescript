@@ -25,6 +25,9 @@ import {
   VerificationReport,
   VerificationJob,
   CertificateValidationResult,
+  AuditEvent,
+  AuditEventProof,
+  AuditExportJob,
   parseAnchorJob,
   parseProof,
   parseBatchSubmission,
@@ -34,6 +37,9 @@ import {
   parseVerificationReport,
   parseVerificationJob,
   parseCertValidationResult,
+  parseAuditEvent,
+  parseAuditEventProof,
+  parseAuditExportJob,
   looksLikeProof,
 } from "./models.js";
 import { verifyProof } from "./verify.js";
@@ -459,6 +465,138 @@ export class TrustBeat {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data = await this.request<any>("POST", "/validate/certificate", body);
     return parseCertValidationResult(data);
+  }
+
+  // ── Audit Trail ─────────────────────────────────────────────────────────────
+
+  /**
+   * Submit a single audit event for tamper-evident Merkle anchoring.
+   * Returns the `eventId` immediately (202 Accepted).
+   */
+  async submitAuditEvent(params: {
+    trailCategory: string;
+    actor: string;
+    action: string;
+    ts: string;
+    system?: string;
+    subsystem?: string;
+    resource?: string;
+    subresource?: string;
+    metadata?: Record<string, unknown>;
+    clientRef1?: string;
+    clientRef2?: string;
+    clientRef3?: string;
+    clientRef4?: string;
+    clientRef5?: string;
+  }): Promise<string> {
+    const body: Record<string, unknown> = {
+      trail_category: params.trailCategory,
+      actor:          params.actor,
+      action:         params.action,
+      ts:             params.ts,
+    };
+    if (params.system)      body.system      = params.system;
+    if (params.subsystem)   body.subsystem   = params.subsystem;
+    if (params.resource)    body.resource    = params.resource;
+    if (params.subresource) body.subresource = params.subresource;
+    if (params.metadata)    body.metadata    = params.metadata;
+    if (params.clientRef1)  body.client_ref_1 = params.clientRef1;
+    if (params.clientRef2)  body.client_ref_2 = params.clientRef2;
+    if (params.clientRef3)  body.client_ref_3 = params.clientRef3;
+    if (params.clientRef4)  body.client_ref_4 = params.clientRef4;
+    if (params.clientRef5)  body.client_ref_5 = params.clientRef5;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = await this.request<any>("POST", "/audit/events", body);
+    return data.event_id as string;
+  }
+
+  /**
+   * Submit up to 1,000 audit events in a single batch request.
+   * Returns the list of `eventId` strings in submission order.
+   */
+  async submitAuditEvents(events: Array<Record<string, unknown>>): Promise<string[]> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = await this.request<any>("POST", "/audit/events/batch", { events });
+    return (data.event_ids ?? []) as string[];
+  }
+
+  /**
+   * Fetch the Merkle inclusion proof for an anchored audit event.
+   * Returns `null` if the event exists but is not yet anchored.
+   */
+  async getAuditEventProof(eventId: string): Promise<AuditEventProof | null> {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = await this.request<any>("GET", `/audit/events/${eventId}/proof`);
+      if (data.status === "pending") return null;
+      return parseAuditEventProof(data);
+    } catch (err) {
+      if (err instanceof NotFoundError) throw err;
+      return null;
+    }
+  }
+
+  /**
+   * Query audit events with optional filters. Returns one page of results.
+   */
+  async listAuditEvents(params?: {
+    trailCategory?: string;
+    actor?: string;
+    action?: string;
+    resource?: string;
+    system?: string;
+    from?: string;
+    to?: string;
+    page?: number;
+    pageSize?: number;
+  }): Promise<AuditEvent[]> {
+    const p = params ?? {};
+    const qs = new URLSearchParams();
+    if (p.trailCategory) qs.set("trail_category", p.trailCategory);
+    if (p.actor)         qs.set("actor",          p.actor);
+    if (p.action)        qs.set("action",         p.action);
+    if (p.resource)      qs.set("resource",       p.resource);
+    if (p.system)        qs.set("system",         p.system);
+    if (p.from)          qs.set("from",           p.from);
+    if (p.to)            qs.set("to",             p.to);
+    qs.set("page",      String(p.page     ?? 1));
+    qs.set("page_size", String(p.pageSize ?? 25));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = await this.request<any>("GET", `/audit/events?${qs}`);
+    return (data.events ?? []).map(parseAuditEvent);
+  }
+
+  /**
+   * Export audit events as a court-admissible ZIP and return the raw bytes.
+   * Blocks until the export job completes (polls every 3 s, up to 5 min).
+   */
+  async exportAuditEvents(params?: {
+    trailCategory?: string;
+    from?: string;
+    to?: string;
+  }): Promise<Uint8Array> {
+    const body: Record<string, string> = {};
+    if (params?.trailCategory) body.trail_category = params.trailCategory;
+    if (params?.from)          body.from           = params.from;
+    if (params?.to)            body.to             = params.to;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const jobData = await this.request<any>("POST", "/audit/export", body);
+    const jobId: string = jobData.job_id;
+    const deadline = Date.now() + 300_000;
+    while (true) {
+      const res = await fetch(`${this.baseUrl}/audit/export/${jobId}`, {
+        headers: { Authorization: `Bearer ${this.apiKey}` },
+      });
+      if (!res.ok) throw new TrustBeatError(`Export poll failed: HTTP ${res.status}`);
+      const ct = res.headers.get("content-type") ?? "";
+      if (ct.startsWith("application/zip")) {
+        return new Uint8Array(await res.arrayBuffer());
+      }
+      const status = (await res.json() as AuditExportJob);
+      if (status.status === "failed") throw new TrustBeatError(status.error ?? "Export failed");
+      if (Date.now() > deadline) throw new TrustBeatError(`Export job ${jobId} timed out`);
+      await new Promise(r => setTimeout(r, 3000));
+    }
   }
 
 }
