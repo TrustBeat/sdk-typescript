@@ -12,7 +12,10 @@ import { createHash } from "node:crypto";
  * Use this when you already have binary data in memory.
  */
 export async function hashBuffer(data: Buffer | ArrayBuffer | Uint8Array): Promise<string> {
-  return createHash("sha256").update(Buffer.from(data)).digest("hex");
+  // `update()` accepts an ArrayBufferView (Buffer/Uint8Array) but not a bare
+  // ArrayBuffer — wrap that case in a Uint8Array view.
+  const view = data instanceof ArrayBuffer ? new Uint8Array(data) : data;
+  return createHash("sha256").update(view).digest("hex");
 }
 
 /**

@@ -106,17 +106,17 @@ describe("anchor()", () => {
     const req = getCaptured();
     const body = JSON.parse(req.body);
     assert.equal(body.hash, "b".repeat(64));
-    assert.equal(body.hash_algorithm, "sha256");
+    assert.equal(body.hash_algorithm, "SHA-256");
     assert.equal(body.client_ref, "ref-1");
     assert.equal(req.headers["Authorization"], "Bearer tb_live_mykey");
   });
 
-  it("sends POST to /anchors", async () => {
+  it("sends POST to /anchor", async () => {
     const getCaptured = captureFetch(202, anchorAcceptedPayload());
     await new TrustBeat({ apiKey: "tb_live_test" }).anchor("a".repeat(64));
     const req = getCaptured();
     assert.equal(req.method, "POST");
-    assert.ok(req.url.endsWith("/anchors"));
+    assert.ok(req.url.endsWith("/anchor"));
   });
 });
 
@@ -125,23 +125,25 @@ describe("anchor()", () => {
 describe("anchorBatch()", () => {
   afterEach(restoreFetch);
 
-  it("returns list of AnchorJobs", async () => {
+  it("returns a BatchSubmission with items", async () => {
     stubFetch(202, {
+      submission_id: "sub-1",
       accepted: [anchorAcceptedPayload("t1"), anchorAcceptedPayload("t2")],
       total: 2,
     });
-    const jobs = await new TrustBeat({ apiKey: "tb_live_test" }).anchorBatch(["a".repeat(64), "b".repeat(64)]);
-    assert.equal(jobs.length, 2);
-    assert.equal(jobs[0].id, "t1");
-    assert.equal(jobs[1].id, "t2");
+    const sub = await new TrustBeat({ apiKey: "tb_live_test" }).anchorBatch(["a".repeat(64), "b".repeat(64)]);
+    assert.equal(sub.submissionId, "sub-1");
+    assert.equal(sub.items.length, 2);
+    assert.equal(sub.items[0].id, "t1");
+    assert.equal(sub.items[1].id, "t2");
   });
 
-  it("empty array returns empty without a request", async () => {
+  it("empty array returns empty submission without a request", async () => {
     let fetchCalled = false;
     originalFetch = globalThis.fetch;
     globalThis.fetch = async () => { fetchCalled = true; return {}; };
     const result = await new TrustBeat({ apiKey: "tb_live_test" }).anchorBatch([]);
-    assert.deepEqual(result, []);
+    assert.deepEqual(result, { submissionId: "", items: [] });
     assert.equal(fetchCalled, false);
     restoreFetch();
   });

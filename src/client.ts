@@ -149,13 +149,13 @@ export class TrustBeat {
   async anchor(hash: string, options: AnchorOptions = {}): Promise<AnchorJob> {
     const body: Record<string, unknown> = {
       hash,
-      hash_algorithm: "sha256",
+      hash_algorithm: "SHA-256",
     };
     if (options.clientRef) body.client_ref = options.clientRef;
     if (options.description) body.description = options.description;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data = await this.request<any>("POST", "/anchors", body);
+    const data = await this.request<any>("POST", "/anchor", body);
     return parseAnchorJob(data);
   }
 
@@ -169,13 +169,13 @@ export class TrustBeat {
       throw new Error("anchorBatch: maximum 100 hashes per request");
     }
     const body: Record<string, unknown> = {
-      hashes: hashes.map((h) => ({ hash: h, hash_algorithm: "sha256" })),
+      hashes: hashes.map((h) => ({ hash: h, hash_algorithm: "SHA-256" })),
     };
     if (options.clientRef) body.client_ref = options.clientRef;
     if (options.description) body.description = options.description;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data = await this.request<any>("POST", "/anchors/batch", body);
+    const data = await this.request<any>("POST", "/anchor/batch", body);
     return parseBatchSubmission(data);
   }
 
@@ -184,7 +184,7 @@ export class TrustBeat {
    */
   async getBatchStatus(submissionId: string): Promise<BatchStatus> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data = await this.request<any>("GET", `/anchors/batch/${encodeURIComponent(submissionId)}/status`);
+    const data = await this.request<any>("GET", `/anchor/batch/${encodeURIComponent(submissionId)}/status`);
     return parseBatchStatus(data);
   }
 
@@ -193,7 +193,7 @@ export class TrustBeat {
    */
   async getBatchProofs(submissionId: string): Promise<AnchorProof[]> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data = await this.request<any>("GET", `/anchors/batch/${encodeURIComponent(submissionId)}/proofs`);
+    const data = await this.request<any>("GET", `/anchor/batch/${encodeURIComponent(submissionId)}/proofs`);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return (data.proofs ?? []).map((p: any) => parseProof(p));
   }
@@ -232,7 +232,7 @@ export class TrustBeat {
    */
   async getProof(trackingId: string): Promise<AnchorProof | null> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data = await this.request<any>("GET", `/anchors/${encodeURIComponent(trackingId)}`);
+    const data = await this.request<any>("GET", `/anchor/${encodeURIComponent(trackingId)}/proof`);
     if (!looksLikeProof(data)) return null;
     return parseProof(data);
   }
