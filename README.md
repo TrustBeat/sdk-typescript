@@ -37,7 +37,7 @@ const waited = await tb.anchorWait(job.id);  // polls up to 11 min
 
 ## Documentation
 
-Full API reference and guides at [trustbeat.eu/docs](https://trustbeat.eu/docs)
+Full API reference and guides at [api.trustbeat.eu/docs](https://api.trustbeat.eu/docs)
 
 ## License
 
