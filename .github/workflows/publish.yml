@@ -1,0 +1,49 @@
+# Publishes the trustbeat npm package on a version tag.
+#
+# This workflow lives at the root of TrustBeat/sdk-typescript (mirrored from
+# eu-security-app sdk/typescript). It does NOT run in the monorepo.
+#
+# Auth: NPM_TOKEN secret (npm automation/granular token with publish rights).
+# Provenance is attached via OIDC (id-token: write) — requires a public repo.
+name: Publish to npm
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # npm provenance
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af  # v4.1.0
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Verify tag matches package version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg=$(node -p "require('./package.json').version")
+          echo "tag=$tag pkg=$pkg"
+          [ "$tag" = "$pkg" ] || { echo "::error::tag $tag != package.json version $pkg"; exit 1; }
+
+      - run: npm install
+
+      - run: npm run build
+
+      - run: npm test
+
+      - name: Publish to npm
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
