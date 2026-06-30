@@ -12,8 +12,7 @@
     "sourceMap": true,
     "skipLibCheck": true,
     "esModuleInterop": false,
-    "types": ["node"],
-    "typeRoots": ["../../portal/node_modules/@types", "./node_modules/@types", "../../node_modules/@types"]
+    "types": ["node"]
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "tests"]

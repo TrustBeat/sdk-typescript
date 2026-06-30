@@ -15,9 +15,13 @@
   "scripts": {
     "build": "tsc",
     "test": "node --test tests/*.test.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.9.0"
+  },
   "dependencies": {},
   "engines": {
     "node": ">=18"
@@ -26,6 +30,9 @@
   "homepage": "https://trustbeat.eu",
   "repository": {
     "type": "git",
-    "url": "https://github.com/trustbeat/trustbeat-js"
+    "url": "git+https://github.com/TrustBeat/sdk-typescript.git"
+  },
+  "bugs": {
+    "url": "https://github.com/TrustBeat/sdk-typescript/issues"
   }
 }
