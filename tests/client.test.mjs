@@ -381,3 +381,61 @@ describe("anchorFile", () => {
     });
   });
 });
+
+// ── audit batch + AI decision pending + export ────────────────────────────────
+
+function aiPendingPayload(id = "ai-1") {
+  return {
+    id,
+    input_hash: "a".repeat(64),
+    output_hash: "b".repeat(64),
+    combined_hash: "c".repeat(64),
+    metadata: {},
+    verification_status: "PENDING",
+    anchored_at: null,
+    proof: null,
+  };
+}
+
+describe("submitAuditEvents()", () => {
+  afterEach(restoreFetch);
+
+  it("sends a bare JSON array, not a wrapped object", async () => {
+    const getCaptured = captureFetch(202, { event_ids: ["e1", "e2"] });
+    const events = [
+      { trail_category: "financial", actor: "svc:pay", action: "payment.approved", ts: "2026-04-15T10:00:00Z" },
+      { trail_category: "financial", actor: "svc:pay", action: "payment.settled",  ts: "2026-04-15T10:00:05Z" },
+    ];
+    const ids = await new TrustBeat({ apiKey: "tb_live_test" }).submitAuditEvents(events);
+    const body = JSON.parse(getCaptured().body);
+    assert.ok(Array.isArray(body), "body must be a JSON array");
+    assert.equal(body.length, 2);
+    assert.equal(body[0].action, "payment.approved");
+    assert.deepEqual(ids, ["e1", "e2"]);
+  });
+});
+
+describe("getAiDecisionProof()", () => {
+  afterEach(restoreFetch);
+
+  it("returns null when verification_status is PENDING", async () => {
+    stubFetch(200, aiPendingPayload());
+    const proof = await new TrustBeat({ apiKey: "tb_live_test" }).getAiDecisionProof("ai-1");
+    assert.equal(proof, null);
+  });
+});
+
+describe("exportAuditEvents()", () => {
+  afterEach(restoreFetch);
+
+  it("throws when from/to are missing, without hitting the network", async () => {
+    let fetchCalled = false;
+    originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => { fetchCalled = true; return {}; };
+    await assert.rejects(
+      () => new TrustBeat({ apiKey: "tb_live_test" }).exportAuditEvents({ from: "", to: "" }),
+      TrustBeatError,
+    );
+    assert.equal(fetchCalled, false);
+  });
+});

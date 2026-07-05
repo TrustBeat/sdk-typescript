@@ -360,6 +360,9 @@ export class TrustBeat {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const data = await this.request<any>("GET", `/ai/decisions/verify/${encodeURIComponent(trackingId)}`);
+      // Before anchoring the API returns 200 with verification_status "PENDING"
+      // and no proof — treat that as "not ready yet" so pollers keep waiting.
+      if (data.verification_status === "PENDING") return null;
       return parseAiDecisionProof(data);
     } catch (err) {
       if (err instanceof NotFoundError && err.code === "NOT_ANCHORED") return null;
@@ -515,8 +518,10 @@ export class TrustBeat {
    * Returns the list of `eventId` strings in submission order.
    */
   async submitAuditEvents(events: Array<Record<string, unknown>>): Promise<string[]> {
+    // The API decodes the body as a bare JSON array of events — do NOT wrap it
+    // in an object.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data = await this.request<any>("POST", "/audit/events/batch", { events });
+    const data = await this.request<any>("POST", "/audit/events/batch", events);
     return (data.event_ids ?? []) as string[];
   }
 
@@ -570,15 +575,16 @@ export class TrustBeat {
    * Export audit events as a court-admissible ZIP and return the raw bytes.
    * Blocks until the export job completes (polls every 3 s, up to 5 min).
    */
-  async exportAuditEvents(params?: {
+  async exportAuditEvents(params: {
+    from: string;
+    to: string;
     trailCategory?: string;
-    from?: string;
-    to?: string;
   }): Promise<Uint8Array> {
-    const body: Record<string, string> = {};
-    if (params?.trailCategory) body.trail_category = params.trailCategory;
-    if (params?.from)          body.from           = params.from;
-    if (params?.to)            body.to             = params.to;
+    if (!params?.from || !params?.to) {
+      throw new TrustBeatError("exportAuditEvents requires both from and to");
+    }
+    const body: Record<string, string> = { from: params.from, to: params.to };
+    if (params.trailCategory) body.trail_category = params.trailCategory;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const jobData = await this.request<any>("POST", "/audit/export", body);
     const jobId: string = jobData.job_id;
