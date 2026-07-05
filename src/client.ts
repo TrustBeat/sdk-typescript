@@ -28,6 +28,11 @@ import {
   AuditEvent,
   AuditEventProof,
   AuditExportJob,
+  LogMetadata,
+  LogAnchorJob,
+  LogStatus,
+  LogAnchorListItem,
+  LogProof,
   parseAnchorJob,
   parseProof,
   parseBatchSubmission,
@@ -40,6 +45,11 @@ import {
   parseAuditEvent,
   parseAuditEventProof,
   parseAuditExportJob,
+  parseLogAnchorJob,
+  parseLogStatus,
+  parseLogAnchorListItem,
+  parseLogProof,
+  logMetadataToJson,
   looksLikeProof,
 } from "./models.js";
 import { verifyProof } from "./verify.js";
@@ -602,6 +612,97 @@ export class TrustBeat {
       if (status.status === "failed") throw new TrustBeatError(status.error ?? "Export failed");
       if (Date.now() > deadline) throw new TrustBeatError(`Export job ${jobId} timed out`);
       await new Promise(r => setTimeout(r, 3000));
+    }
+  }
+
+  // ── Tamper-Evident Logs (NIS2) ─────────────────────────────────────────────
+
+  /**
+   * Submit a log hash for NIS2 Article 21 tamper-evident anchoring. Returns
+   * immediately (202) with a tracking ID; the log is anchored in the next batch
+   * (~10 min). The server binds `metadata` into the Merkle leaf.
+   */
+  async anchorLog(
+    logHash: string,
+    metadata: LogMetadata,
+    options: { label?: string } = {},
+  ): Promise<LogAnchorJob> {
+    const body: Record<string, unknown> = { log_hash: logHash, metadata: logMetadataToJson(metadata) };
+    if (options.label !== undefined) body.label = options.label;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = await this.request<any>("POST", "/logs/anchor", body);
+    return parseLogAnchorJob(data);
+  }
+
+  /**
+   * Fetch the verification result for a log anchor. Returns `null` while the log
+   * is still pending (verification_status "PENDING"). Throws NotFoundError if the
+   * tracking ID is unknown.
+   */
+  async getLogProof(trackingId: string): Promise<LogProof | null> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = await this.request<any>("GET", `/logs/verify/${encodeURIComponent(trackingId)}`);
+    if (data.verification_status === "PENDING") return null;
+    return parseLogProof(data);
+  }
+
+  /** Get the lightweight status of a log anchor submission (cheap polling). */
+  async getLogStatus(trackingId: string): Promise<LogStatus> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = await this.request<any>("GET", `/logs/${encodeURIComponent(trackingId)}/status`);
+    return parseLogStatus(data);
+  }
+
+  /** List recent log anchor submissions, with optional filters. */
+  async listLogs(params?: {
+    status?: "pending" | "anchored";
+    from?: string;
+    to?: string;
+  }): Promise<LogAnchorListItem[]> {
+    const qs = new URLSearchParams();
+    if (params?.status) qs.set("status", params.status);
+    if (params?.from)   qs.set("from", params.from);
+    if (params?.to)     qs.set("to", params.to);
+    const suffix = qs.toString() ? `?${qs}` : "";
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = await this.request<any>("GET", `/logs${suffix}`);
+    return (data.logs ?? []).map(parseLogAnchorListItem);
+  }
+
+  /**
+   * Download a portable NIS2 log proof bundle (bundle_type "trustbeat.log.proof").
+   * Returns the raw JSON bundle bytes. Throws NotFoundError if unknown/not anchored.
+   */
+  async exportLog(trackingId: string): Promise<Uint8Array> {
+    const res = await fetch(`${this.baseUrl}/logs/${encodeURIComponent(trackingId)}/export`, {
+      headers: { Authorization: `Bearer ${this.apiKey}`, Accept: "application/json" },
+    });
+    if (res.status === 404) throw new NotFoundError(`Log ${trackingId} not found`);
+    if (!res.ok) throw new TrustBeatError(`Log export failed: HTTP ${res.status}`, res.status);
+    return new Uint8Array(await res.arrayBuffer());
+  }
+
+  /**
+   * Poll getLogProof() until the log is anchored, then return the proof.
+   * Throws TimeoutError if not ready within timeoutSecs (default 660).
+   */
+  async anchorLogWait(
+    trackingId: string,
+    options: AnchorWaitOptions = {},
+  ): Promise<LogProof> {
+    const timeoutSecs = options.timeoutSecs ?? 660;
+    const pollIntervalSecs = options.pollIntervalSecs ?? 15;
+    const deadline = Date.now() + timeoutSecs * 1000;
+    while (true) {
+      const proof = await this.getLogProof(trackingId);
+      if (proof !== null) return proof;
+      if (Date.now() >= deadline) {
+        throw Object.assign(
+          new Error(`anchorLogWait timed out after ${timeoutSecs}s`),
+          { name: "TimeoutError" },
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalSecs * 1000));
     }
   }
 

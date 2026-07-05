@@ -1,6 +1,6 @@
 {
   "name": "trustbeat",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "TrustBeat SDK — qualified timestamping and Merkle anchoring",
   "type": "module",
   "main": "./dist/index.js",

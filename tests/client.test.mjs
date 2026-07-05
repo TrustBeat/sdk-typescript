@@ -439,3 +439,123 @@ describe("exportAuditEvents()", () => {
     assert.equal(fetchCalled, false);
   });
 });
+
+// ── Tamper-Evident Logs (NIS2) ────────────────────────────────────────────────
+
+function logMeta() {
+  return {
+    logSource: { uri: "/var/log/app.log", name: "App log", sizeBytes: 2048 },
+    sourceIdentity: { hostname: "host-1", serviceName: "payments" },
+    timeEnvelope: { startAt: "2026-04-15T00:00:00Z", endAt: "2026-04-15T23:59:59Z" },
+  };
+}
+
+function logProofPayload(status = "VERIFIED") {
+  return {
+    id: "log-1",
+    log_hash: "a".repeat(64),
+    combined_hash: "c".repeat(64),
+    metadata: {
+      log_source: { uri: "/var/log/app.log", name: "App log", size_bytes: 2048 },
+      source_identity: { hostname: "host-1", service_name: "payments" },
+      time_envelope: { start_at: "2026-04-15T00:00:00Z", end_at: "2026-04-15T23:59:59Z" },
+    },
+    verification_status: status,
+    archive_stamps_count: 0,
+    anchored_at: status === "PENDING" ? null : "2026-04-15T10:10:00Z",
+    proof: status === "VERIFIED" ? proofPayload("log-1") : null,
+  };
+}
+
+describe("anchorLog()", () => {
+  afterEach(restoreFetch);
+
+  it("sends log_hash + snake_case metadata + label", async () => {
+    const getCaptured = captureFetch(202, {
+      id: "log-1", log_hash: "b".repeat(64), combined_hash: "c".repeat(64),
+      status: "pending", submitted_at: "2026-04-15T10:00:00Z", overage: false, label: "lbl",
+    });
+    const job = await new TrustBeat({ apiKey: "tb_live_test" }).anchorLog("b".repeat(64), logMeta(), { label: "lbl" });
+    const body = JSON.parse(getCaptured().body);
+    assert.equal(body.log_hash, "b".repeat(64));
+    assert.equal(body.label, "lbl");
+    assert.equal(body.metadata.log_source.uri, "/var/log/app.log");
+    assert.equal(body.metadata.log_source.size_bytes, 2048);
+    assert.equal(body.metadata.source_identity.service_name, "payments");
+    assert.equal(body.metadata.time_envelope.end_at, "2026-04-15T23:59:59Z");
+    assert.equal(job.id, "log-1");
+    assert.equal(job.label, "lbl");
+  });
+
+  it("omits undefined optionals from metadata", async () => {
+    const getCaptured = captureFetch(202, {
+      id: "log-1", log_hash: "a".repeat(64), combined_hash: "c".repeat(64),
+      status: "pending", submitted_at: "2026-04-15T10:00:00Z", overage: false, label: null,
+    });
+    await new TrustBeat({ apiKey: "tb_live_test" }).anchorLog(
+      "a".repeat(64), { logSource: { uri: "/x.log" }, sourceIdentity: {} });
+    const body = JSON.parse(getCaptured().body);
+    assert.ok(!("label" in body));
+    assert.ok(!("time_envelope" in body.metadata));
+    assert.deepEqual(body.metadata.source_identity, {});
+    assert.ok(!("name" in body.metadata.log_source));
+  });
+});
+
+describe("getLogProof()", () => {
+  afterEach(restoreFetch);
+
+  it("returns a proof when VERIFIED", async () => {
+    stubFetch(200, logProofPayload("VERIFIED"));
+    const proof = await new TrustBeat({ apiKey: "tb_live_test" }).getLogProof("log-1");
+    assert.equal(proof.verificationStatus, "VERIFIED");
+    assert.equal(proof.metadata.logSource.uri, "/var/log/app.log");
+    assert.notEqual(proof.proof, null);
+  });
+
+  it("returns null when PENDING", async () => {
+    stubFetch(200, logProofPayload("PENDING"));
+    const proof = await new TrustBeat({ apiKey: "tb_live_test" }).getLogProof("log-1");
+    assert.equal(proof, null);
+  });
+});
+
+describe("getLogStatus() / listLogs()", () => {
+  afterEach(restoreFetch);
+
+  it("parses status", async () => {
+    stubFetch(200, { id: "log-1", status: "anchored", submitted_at: "2026-04-15T10:00:00Z", anchored_at: "2026-04-15T10:10:00Z" });
+    const st = await new TrustBeat({ apiKey: "tb_live_test" }).getLogStatus("log-1");
+    assert.equal(st.status, "anchored");
+    assert.equal(st.anchoredAt, "2026-04-15T10:10:00Z");
+  });
+
+  it("builds the list query string and parses items", async () => {
+    const getCaptured = captureFetch(200, { logs: [
+      { id: "log-1", log_hash: "a".repeat(64), status: "anchored", submitted_at: "2026-04-15T10:00:00Z", log_source_uri: "/var/log/app.log", service_name: "payments", label: "x" },
+    ], total: 1 });
+    const logs = await new TrustBeat({ apiKey: "tb_live_test" }).listLogs({ status: "anchored", from: "2026-04-01T00:00:00Z", to: "2026-04-30T00:00:00Z" });
+    const url = getCaptured().url;
+    assert.ok(url.includes("status=anchored"));
+    assert.ok(url.includes("from=2026-04-01"));
+    assert.equal(logs.length, 1);
+    assert.equal(logs[0].logSourceUri, "/var/log/app.log");
+  });
+});
+
+describe("exportLog()", () => {
+  afterEach(restoreFetch);
+
+  it("returns the raw bundle bytes", async () => {
+    const raw = Buffer.from(JSON.stringify({ bundle_type: "trustbeat.log.proof", id: "log-1" }));
+    originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({
+      ok: true, status: 200,
+      headers: { get: () => "application/json" },
+      arrayBuffer: async () => raw,
+    });
+    const blob = await new TrustBeat({ apiKey: "tb_live_test" }).exportLog("log-1");
+    assert.ok(blob instanceof Uint8Array);
+    assert.ok(Buffer.from(blob).toString().includes("trustbeat.log.proof"));
+  });
+});

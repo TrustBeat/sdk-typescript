@@ -437,3 +437,182 @@ export function parseAuditExportJob(d: any): AuditExportJob {
     error:       d.error,
   };
 }
+
+// ── Tamper-Evident Logs (NIS2) ────────────────────────────────────────────────
+
+/** Identifies the log source being anchored. */
+export interface LogSource {
+  /** URI identifying the log source (file path, S3 URI, syslog identifier, etc.). */
+  uri: string;
+  /** Human-readable name for the log source. */
+  name?: string;
+  /** Size of the log file/stream in bytes. */
+  sizeBytes?: number;
+}
+
+/** Time window covered by the anchored log. */
+export interface LogTimeEnvelope {
+  startAt: string; // ISO 8601
+  endAt: string;   // ISO 8601
+}
+
+/** Identity of the system that emitted the log (all fields optional). */
+export interface LogSourceIdentity {
+  systemUuid?: string;
+  cloudInstanceId?: string;
+  hostname?: string;
+  serviceName?: string;
+  tenantId?: string;
+}
+
+/**
+ * Metadata sealed alongside a log hash for NIS2 Article 21 anchoring.
+ * The server computes combined_hash = SHA-256(log_hash_bytes ‖ UTF-8(JCS(metadata))),
+ * binding this context into the Merkle leaf.
+ */
+export interface LogMetadata {
+  logSource: LogSource;
+  sourceIdentity: LogSourceIdentity;
+  timeEnvelope?: LogTimeEnvelope;
+}
+
+/** Returned immediately (202) when a log hash is enqueued for anchoring. */
+export interface LogAnchorJob {
+  id: string;
+  logHash: string;
+  combinedHash: string;
+  status: string;      // "pending"
+  submittedAt: string; // ISO 8601
+  overage: boolean;
+  label: string | null;
+}
+
+/** Lightweight status of a log anchor submission. */
+export interface LogStatus {
+  id: string;
+  status: "pending" | "anchored";
+  submittedAt: string;
+  anchoredAt: string | null;
+}
+
+/** A single log anchor submission as returned by the list endpoint. */
+export interface LogAnchorListItem {
+  id: string;
+  logHash: string;
+  status: "pending" | "anchored";
+  submittedAt: string;
+  logSourceUri: string;
+  anchoredAt: string | null;
+  serviceName: string | null;
+  label: string | null;
+}
+
+/**
+ * Verification result for an anchored log. verificationStatus is "VERIFIED" when
+ * the Merkle proof is valid and the combined hash matches; proof is null otherwise.
+ */
+export interface LogProof {
+  id: string;
+  logHash: string;
+  metadata: LogMetadata;
+  combinedHash: string;
+  verificationStatus: "VERIFIED" | "FAILED";
+  archiveStampsCount: number;
+  anchoredAt: string | null;
+  proof: AnchorProof | null;
+  failureReasons: string[] | null;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function parseLogAnchorJob(d: any): LogAnchorJob {
+  return {
+    id:           d.id,
+    logHash:      d.log_hash,
+    combinedHash: d.combined_hash,
+    status:       d.status,
+    submittedAt:  d.submitted_at,
+    overage:      d.overage ?? false,
+    label:        d.label ?? null,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function parseLogStatus(d: any): LogStatus {
+  return {
+    id:          d.id,
+    status:      d.status,
+    submittedAt: d.submitted_at,
+    anchoredAt:  d.anchored_at ?? null,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function parseLogAnchorListItem(d: any): LogAnchorListItem {
+  return {
+    id:           d.id,
+    logHash:      d.log_hash,
+    status:       d.status,
+    submittedAt:  d.submitted_at,
+    logSourceUri: d.log_source_uri,
+    anchoredAt:   d.anchored_at ?? null,
+    serviceName:  d.service_name ?? null,
+    label:        d.label ?? null,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function parseLogMetadata(m: any): LogMetadata {
+  const ident = m.source_identity ?? {};
+  const te = m.time_envelope;
+  return {
+    logSource: {
+      uri:       m.log_source.uri,
+      name:      m.log_source.name ?? undefined,
+      sizeBytes: m.log_source.size_bytes ?? undefined,
+    },
+    sourceIdentity: {
+      systemUuid:      ident.system_uuid ?? undefined,
+      cloudInstanceId: ident.cloud_instance_id ?? undefined,
+      hostname:        ident.hostname ?? undefined,
+      serviceName:     ident.service_name ?? undefined,
+      tenantId:        ident.tenant_id ?? undefined,
+    },
+    timeEnvelope: te ? { startAt: te.start_at, endAt: te.end_at } : undefined,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function parseLogProof(d: any): LogProof {
+  return {
+    id:                 d.id,
+    logHash:            d.log_hash,
+    metadata:           parseLogMetadata(d.metadata),
+    combinedHash:       d.combined_hash,
+    verificationStatus: d.verification_status,
+    archiveStampsCount: d.archive_stamps_count ?? 0,
+    anchoredAt:         d.anchored_at ?? null,
+    proof:              d.proof ? parseProof(d.proof) : null,
+    failureReasons:     d.failure_reasons ?? null,
+  };
+}
+
+/** Serialize LogMetadata to the wire shape, omitting undefined optionals. */
+export function logMetadataToJson(m: LogMetadata): Record<string, unknown> {
+  const src: Record<string, unknown> = { uri: m.logSource.uri };
+  if (m.logSource.name !== undefined)      src.name = m.logSource.name;
+  if (m.logSource.sizeBytes !== undefined) src.size_bytes = m.logSource.sizeBytes;
+
+  const ident: Record<string, unknown> = {};
+  const id = m.sourceIdentity;
+  if (id.systemUuid !== undefined)      ident.system_uuid = id.systemUuid;
+  if (id.cloudInstanceId !== undefined) ident.cloud_instance_id = id.cloudInstanceId;
+  if (id.hostname !== undefined)        ident.hostname = id.hostname;
+  if (id.serviceName !== undefined)     ident.service_name = id.serviceName;
+  if (id.tenantId !== undefined)        ident.tenant_id = id.tenantId;
+
+  const out: Record<string, unknown> = { log_source: src, source_identity: ident };
+  if (m.timeEnvelope !== undefined) {
+    out.time_envelope = { start_at: m.timeEnvelope.startAt, end_at: m.timeEnvelope.endAt };
+  }
+  return out;
+}

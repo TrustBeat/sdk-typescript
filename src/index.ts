@@ -13,6 +13,8 @@ export type {
   SignatureDetail, VerificationReport, VerificationJob, CertificateValidationResult,
   SignatureVerdict,
   AuditProofStep, AuditEvent, AuditEventProof, AuditExportJob,
+  LogSource, LogTimeEnvelope, LogSourceIdentity, LogMetadata,
+  LogAnchorJob, LogStatus, LogAnchorListItem, LogProof,
 } from "./models.js";
 
 export {

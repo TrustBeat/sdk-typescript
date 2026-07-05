@@ -33,6 +33,34 @@ const waited = await tb.anchorWait(job.id);  // polls up to 11 min
 
 ```
 
+## Tamper-Evident Logs (NIS2)
+
+Anchor a log hash together with canonical metadata for NIS2 Article 21 audit trails.
+The server seals the metadata into the Merkle leaf, so the proof covers both the log
+content and its context.
+
+```typescript
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { TrustBeat } from "trustbeat";
+
+const tb = new TrustBeat({ apiKey: "tb_live_..." });
+
+// Hash the log yourself — content never leaves your machine.
+const logHash = createHash("sha256").update(readFileSync("app.log")).digest("hex");
+
+const job = await tb.anchorLog(logHash, {
+  logSource: { uri: "/var/log/app.log", name: "Application log" },
+  sourceIdentity: { hostname: "web-01", serviceName: "payments" },
+  timeEnvelope: { startAt: "2026-04-15T00:00:00Z", endAt: "2026-04-15T23:59:59Z" },
+}, { label: "incident-2026-05" });
+console.log(job.id, job.combinedHash);
+
+// Wait for the qualified anchor (next batch, up to 11 min).
+const proof = await tb.anchorLogWait(job.id);
+console.log(proof.verificationStatus); // "VERIFIED"
+```
+
 ## Requirements
 
 - Node.js 18+ (uses native `fetch` and `crypto`)
