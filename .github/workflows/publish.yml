@@ -47,3 +47,17 @@ jobs:
         run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # Dogfood: qualified timestamp for the release tarball (npm pack in the
+      # same run produces the same bytes npm publish uploaded).
+      # Evidence step only — must never turn a completed publish red.
+      - name: Pack tarball for anchoring
+        run: npm pack
+
+      - name: Anchor release artifact (TrustBeat)
+        continue-on-error: true
+        uses: TrustBeat/anchor-action@a5eb4451717f36d7bd1b6142a473003031f27512  # v1.0.0
+        with:
+          api-key: ${{ secrets.TRUSTBEAT_API_KEY }}
+          files: '*.tgz'
+          description: "trustbeat npm ${{ github.ref_name }}"
