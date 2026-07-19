@@ -53,6 +53,7 @@ import {
   looksLikeProof,
 } from "./models.js";
 import { verifyProof } from "./verify.js";
+import { verifyWebhookSignature, WebhookVerifyOptions } from "./webhook.js";
 
 // ── Options types ─────────────────────────────────────────────────────────────
 
@@ -405,6 +406,21 @@ export class TrustBeat {
     }
   }
 
+  /**
+   * Download a portable AI Act proof bundle (bundle_type "trustbeat.ai.proof").
+   * Returns the raw JSON bundle bytes. Throws NotFoundError if the ID is
+   * unknown or the decision is not yet anchored.
+   */
+  async exportAiDecision(trackingId: string): Promise<Uint8Array> {
+    const res = await fetch(
+      `${this.baseUrl}/ai/decisions/${encodeURIComponent(trackingId)}/export`,
+      { headers: { Authorization: `Bearer ${this.apiKey}`, Accept: "application/json" } },
+    );
+    if (res.status === 404) throw new NotFoundError(`AI decision ${trackingId} not found`);
+    if (!res.ok) throw new TrustBeatError(`AI decision export failed: HTTP ${res.status}`, res.status);
+    return new Uint8Array(await res.arrayBuffer());
+  }
+
   // ── Signature & certificate verification ──────────────────────────────────
 
   /**
@@ -466,6 +482,21 @@ export class TrustBeat {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data = await this.request<any>("GET", `/verify/${encodeURIComponent(trackingId)}`);
     return parseVerificationReport(data);
+  }
+
+  /**
+   * Download a portable verification proof bundle
+   * (bundle_type "trustbeat.verification.proof"). Returns the raw JSON bundle
+   * bytes. Throws NotFoundError if the tracking ID is unknown.
+   */
+  async exportVerification(trackingId: string): Promise<Uint8Array> {
+    const res = await fetch(
+      `${this.baseUrl}/verify/${encodeURIComponent(trackingId)}/export`,
+      { headers: { Authorization: `Bearer ${this.apiKey}`, Accept: "application/json" } },
+    );
+    if (res.status === 404) throw new NotFoundError(`Verification ${trackingId} not found`);
+    if (!res.ok) throw new TrustBeatError(`Verification export failed: HTTP ${res.status}`, res.status);
+    return new Uint8Array(await res.arrayBuffer());
   }
 
   /**
@@ -704,6 +735,24 @@ export class TrustBeat {
       }
       await new Promise((resolve) => setTimeout(resolve, pollIntervalSecs * 1000));
     }
+  }
+
+  // ── Webhooks ───────────────────────────────────────────────────────────────
+
+  /**
+   * Verify the `X-TrustBeat-Signature` header of a webhook delivery.
+   *
+   * Pass the **raw request body** exactly as received. Returns `true` if the
+   * signature is valid and the timestamp is within tolerance. See
+   * {@link verifyWebhookSignature} for details.
+   */
+  static verifyWebhookSignature(
+    payload: Uint8Array | string,
+    signatureHeader: string,
+    secret: string,
+    options: WebhookVerifyOptions = {},
+  ): boolean {
+    return verifyWebhookSignature(payload, signatureHeader, secret, options);
   }
 
 }

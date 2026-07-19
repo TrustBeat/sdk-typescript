@@ -559,3 +559,56 @@ describe("exportLog()", () => {
     assert.ok(Buffer.from(blob).toString().includes("trustbeat.log.proof"));
   });
 });
+
+describe("exportAiDecision()", () => {
+  afterEach(restoreFetch);
+
+  it("returns the raw bundle bytes from the right endpoint", async () => {
+    const raw = Buffer.from(JSON.stringify({ bundle_type: "trustbeat.ai.proof", id: "dec-1" }));
+    originalFetch = globalThis.fetch;
+    let requestedUrl = null;
+    globalThis.fetch = async (url) => {
+      requestedUrl = String(url);
+      return {
+        ok: true, status: 200,
+        headers: { get: () => "application/json" },
+        arrayBuffer: async () => raw,
+      };
+    };
+    const blob = await new TrustBeat({ apiKey: "tb_live_test" }).exportAiDecision("dec-1");
+    assert.ok(blob instanceof Uint8Array);
+    assert.ok(Buffer.from(blob).toString().includes("trustbeat.ai.proof"));
+    assert.ok(requestedUrl.endsWith("/v1/ai/decisions/dec-1/export"));
+  });
+
+  it("throws NotFoundError on 404", async () => {
+    originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({ ok: false, status: 404 });
+    await assert.rejects(
+      () => new TrustBeat({ apiKey: "tb_live_test" }).exportAiDecision("nope"),
+      NotFoundError,
+    );
+  });
+});
+
+describe("exportVerification()", () => {
+  afterEach(restoreFetch);
+
+  it("returns the raw bundle bytes from the right endpoint", async () => {
+    const raw = Buffer.from(JSON.stringify({ bundle_type: "trustbeat.verification.proof", id: "ver-1" }));
+    originalFetch = globalThis.fetch;
+    let requestedUrl = null;
+    globalThis.fetch = async (url) => {
+      requestedUrl = String(url);
+      return {
+        ok: true, status: 200,
+        headers: { get: () => "application/json" },
+        arrayBuffer: async () => raw,
+      };
+    };
+    const blob = await new TrustBeat({ apiKey: "tb_live_test" }).exportVerification("ver-1");
+    assert.ok(blob instanceof Uint8Array);
+    assert.ok(Buffer.from(blob).toString().includes("trustbeat.verification.proof"));
+    assert.ok(requestedUrl.endsWith("/v1/verify/ver-1/export"));
+  });
+});

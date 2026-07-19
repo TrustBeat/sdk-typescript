@@ -28,3 +28,5 @@ export {
 
 export { verifyProof } from "./verify.js";
 export { hashBuffer, hashString } from "./hash.js";
+export { verifyWebhookSignature } from "./webhook.js";
+export type { WebhookVerifyOptions } from "./webhook.js";

@@ -3,6 +3,7 @@
 Qualified electronic timestamps and Merkle anchoring — eIDAS-compliant, over a simple API.
 
 Part of **[TrustBeat](https://trustbeat.eu)** — digital trust infrastructure for the EU.
+All SDKs (Python, TypeScript, Java, C#, Go): **[trustbeat.eu/sdks](https://trustbeat.eu/sdks)**.
 
 ## Install
 
@@ -60,6 +61,27 @@ console.log(job.id, job.combinedHash);
 const proof = await tb.anchorLogWait(job.id);
 console.log(proof.verificationStatus); // "VERIFIED"
 ```
+
+## Webhooks
+
+If your account has a webhook secret configured, every delivery is signed with
+an `X-TrustBeat-Signature` header. Verify it with the raw request body —
+before any JSON parsing:
+
+```ts
+import { verifyWebhookSignature } from "trustbeat";
+
+// body must be the raw bytes/string as received (e.g. express.raw())
+if (!verifyWebhookSignature(rawBody, signatureHeader, webhookSecret)) {
+  throw new Error("Invalid webhook signature");
+}
+```
+
+Also available as `TrustBeat.verifyWebhookSignature(...)`. Rejects replays
+older than 5 minutes by default (`toleranceSecs` option to override).
+
+Portable proof bundles for offline verification: `exportAiDecision(id)`,
+`exportVerification(id)`, `exportLog(id)` — each returns raw JSON bundle bytes.
 
 ## Requirements
 
