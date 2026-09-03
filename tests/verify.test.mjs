@@ -296,3 +296,37 @@ describe("merkleAlgorithm dispatch", () => {
     );
   });
 });
+
+// ── Shared RFC 6962 fixture ───────────────────────────────────────────────────
+
+import { readFileSync, existsSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+function loadFixture() {
+  let dir = dirname(fileURLToPath(import.meta.url));
+  for (let i = 0; i < 8; i++) {
+    const f = join(dir, "tests", "fixtures", "rfc6962-proofs.json");
+    if (existsSync(f)) return JSON.parse(readFileSync(f, "utf8"));
+    dir = resolve(dir, "..");
+  }
+  throw new Error("rfc6962-proofs.json not found");
+}
+
+describe("shared RFC 6962 fixture", () => {
+  it("every fixture proof verifies", async () => {
+    const doc = loadFixture();
+    for (const p of doc.proofs) {
+      const proof = proofWith(p.hash, p.merkle_root, p.proof_path, p.merkle_algorithm);
+      assert.equal(await verifyProof(proof), true, `leaf ${p.leaf_index} failed`);
+    }
+  });
+
+  it("a tampered fixture proof fails", async () => {
+    // Guards against the suite passing because verification is a no-op.
+    const doc = loadFixture();
+    const p = doc.proofs[0];
+    const proof = proofWith("00".repeat(32), p.merkle_root, p.proof_path, p.merkle_algorithm);
+    assert.equal(await verifyProof(proof), false);
+  });
+});
