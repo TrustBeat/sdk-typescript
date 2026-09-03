@@ -47,6 +47,20 @@ export class RateLimitError extends TrustBeatError {
 }
 
 /** Raised when local Merkle proof verification encounters malformed data. */
+/**
+ * The proof declares a `merkleAlgorithm` this SDK version does not implement.
+ *
+ * Deliberately not a `VerificationError` and never a `false` return: "I cannot
+ * check this proof" must not be mistaken for "this proof is forged". Upgrade the
+ * SDK, or verify server-side via the API.
+ */
+export class UnsupportedAlgorithmError extends TrustBeatError {
+  constructor(message: string) {
+    super(message);
+    this.name = "UnsupportedAlgorithmError";
+  }
+}
+
 export class VerificationError extends TrustBeatError {
   constructor(message: string) {
     super(message, undefined, "VERIFICATION_ERROR");

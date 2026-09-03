@@ -24,9 +24,11 @@ export {
   QuotaError,
   RateLimitError,
   VerificationError,
+  UnsupportedAlgorithmError,
 } from "./exceptions.js";
 
 export { verifyProof } from "./verify.js";
+export { LEGACY_SHA256, RFC6962_SHA256 } from "./models.js";
 export { hashBuffer, hashString } from "./hash.js";
 export { verifyWebhookSignature } from "./webhook.js";
 export type { WebhookVerifyOptions } from "./webhook.js";

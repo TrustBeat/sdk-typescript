@@ -1,16 +1,28 @@
 /**
  * Local Merkle inclusion proof verification.
  *
- * Algorithm mirrors MerkleEngine.scala exactly:
- *   parent = SHA-256(left_child || right_child)
- *   side="left"  → sibling is on the left  → hash(sibling || current)
- *   side="right" → sibling is on the right → hash(current || sibling)
- *   Odd layers duplicate the last node.
+ * The fold depends on the construction the proof declares in `merkleAlgorithm`:
+ *
+ *   trustbeat-legacy-sha256 — leaf = your hash, parent = SHA-256(left || right)
+ *   rfc6962-sha256          — leaf = SHA-256(0x00 || your hash),
+ *                             parent = SHA-256(0x01 || left || right)
+ *
+ * In both, `side` gives the *sibling's* position:
+ *   side="left"  → sibling is on the left  → hash over (sibling, current)
+ *   side="right" → sibling is on the right → hash over (current, sibling)
+ *
+ * A proof with no `merkleAlgorithm` predates the field and is legacy.
  */
 
 import { createHash, timingSafeEqual as nodeTSE } from "node:crypto";
-import { AnchorProof } from "./models.js";
-import { VerificationError } from "./exceptions.js";
+import { AnchorProof, LEGACY_SHA256, RFC6962_SHA256 } from "./models.js";
+import { UnsupportedAlgorithmError, VerificationError } from "./exceptions.js";
+
+/** algorithm → [leaf prefix, node prefix] */
+const PREFIXES: Record<string, [Buffer, Buffer]> = {
+  [LEGACY_SHA256]: [Buffer.alloc(0), Buffer.alloc(0)],
+  [RFC6962_SHA256]: [Buffer.from([0x00]), Buffer.from([0x01])],
+};
 
 // ── Hex helpers ───────────────────────────────────────────────────────────────
 
@@ -38,9 +50,20 @@ function concat(a: Buffer, b: Buffer): Buffer {
  *
  * Returns `true` if the computed root matches `proof.merkleRoot`,
  * `false` if the proof is cryptographically invalid.
- * Throws `VerificationError` if input data is malformed.
+ * Throws `VerificationError` if input data is malformed, or
+ * `UnsupportedAlgorithmError` if this SDK cannot compute the declared algorithm.
  */
 export async function verifyProof(proof: AnchorProof): Promise<boolean> {
+  const algorithm = proof.merkleAlgorithm || LEGACY_SHA256;
+  const prefixes = PREFIXES[algorithm];
+  if (!prefixes) {
+    throw new UnsupportedAlgorithmError(
+      `Unsupported merkleAlgorithm "${algorithm}". This SDK understands ` +
+        `${Object.keys(PREFIXES).join(", ")}. Upgrade the SDK, or verify via the API.`
+    );
+  }
+  const [leafPrefix, nodePrefix] = prefixes;
+
   // Decode leaf hash
   let current: Buffer;
   try {
@@ -48,6 +71,7 @@ export async function verifyProof(proof: AnchorProof): Promise<boolean> {
   } catch {
     throw new VerificationError(`Invalid leaf hash: "${proof.hash}"`);
   }
+  if (leafPrefix.length > 0) current = sha256(concat(leafPrefix, current));
 
   // Decode expected root
   let expectedRoot: Buffer;
@@ -67,11 +91,11 @@ export async function verifyProof(proof: AnchorProof): Promise<boolean> {
     }
 
     if (step.side === "left") {
-      // sibling is on the left: parent = hash(sibling || current)
-      current = sha256(concat(sibling, current));
+      // sibling is on the left: parent = hash(P || sibling || current)
+      current = sha256(concat(nodePrefix, concat(sibling, current)));
     } else if (step.side === "right") {
-      // sibling is on the right: parent = hash(current || sibling)
-      current = sha256(concat(current, sibling));
+      // sibling is on the right: parent = hash(P || current || sibling)
+      current = sha256(concat(nodePrefix, concat(current, sibling)));
     } else {
       throw new VerificationError(`Unknown side: "${step.side}" — expected "left" or "right"`);
     }

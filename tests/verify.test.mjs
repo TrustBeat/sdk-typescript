@@ -202,3 +202,97 @@ describe("VerificationError cases", () => {
     );
   });
 });
+
+// ── merkle_algorithm dispatch (SDK 0.4.0) ─────────────────────────────────────
+
+import {
+  LEGACY_SHA256,
+  RFC6962_SHA256,
+  UnsupportedAlgorithmError,
+} from "../dist/index.js";
+
+function proofWith(hash, merkleRoot, proofPath = [], merkleAlgorithm = LEGACY_SHA256) {
+  return {
+    id: "p1",
+    hash,
+    hashAlgorithm: "SHA-256",
+    batchId: "b1",
+    leafIndex: 0,
+    merkleRoot,
+    proofPath,
+    token: new Uint8Array(),
+    tokenFormat: "RFC3161_DER",
+    tsaSerial: "1",
+    provider: "test",
+    anchoredAt: "2026-01-01T00:00:00Z",
+    clientRef: null,
+    description: null,
+    merkleAlgorithm,
+    treeSize: null,
+  };
+}
+
+describe("merkleAlgorithm dispatch", () => {
+  it("treats a missing algorithm as legacy", async () => {
+    // Proofs issued before the field existed must keep verifying forever.
+    const leaf = sha256(Buffer.from("a")).toString("hex");
+    const p = proofWith(leaf, leaf);
+    delete p.merkleAlgorithm;
+    assert.equal(await verifyProof(p), true);
+  });
+
+  it("rfc6962 hashes the leaf, so a one-leaf root is not the leaf", async () => {
+    const leaf = sha256(Buffer.from("a"));
+    const rfcRoot = sha256(Buffer.concat([Buffer.from([0x00]), leaf])).toString("hex");
+    assert.equal(
+      await verifyProof(proofWith(leaf.toString("hex"), rfcRoot, [], RFC6962_SHA256)),
+      true
+    );
+    assert.equal(
+      await verifyProof(
+        proofWith(leaf.toString("hex"), leaf.toString("hex"), [], RFC6962_SHA256)
+      ),
+      false
+    );
+  });
+
+  it("reproduces the RFC 6962 reference vector for [a,b,c]", async () => {
+    const a = sha256(Buffer.from("a")).toString("hex");
+    const path = [
+      { sibling: "a0d9f0a50b35b9f7d7edc57fb64f4771ddef0fefeaca4e6f949a1514db5b136d", side: "right" },
+      { sibling: "6a3fc11b79f836bda340e75c8906e961b8adf4d6a08a2b992e3f38cd6ff38ebf", side: "right" },
+    ];
+    const root = "cac3d448d4e20a2ad5eae1f500e63c2a7f9217cd14572ba7fd22e26dc1ec2648";
+    assert.equal(await verifyProof(proofWith(a, root, path, RFC6962_SHA256)), true);
+  });
+
+  // Vectors below are taken verbatim from Google's transparency-dev/merkle
+  // (rfc6962_test.go) — a third-party implementation.
+  it("leaf hash matches the upstream RFC 6962 vector", async () => {
+    // SHA-256(0x00 || "L123456")
+    assert.equal(
+      await verifyProof(proofWith("4c313233343536", "395aa064aa4c29f7010acfe3f25db9485bbd4b91897b6ad7ad547639252b4d56", [], RFC6962_SHA256)),
+      true
+    );
+  });
+
+  it("rfc6962 left sibling applies the node prefix", async () => {
+    // Two-leaf tree whose BOTH leaf hashes are upstream vectors.
+    // Exercises side="left", which no other rfc6962 test reaches.
+    assert.equal(
+      await verifyProof(
+        proofWith("4c313233343536", "bf9ae70442844df993ca0001a7c8a095c5f145857960b1ee389df6cbe84b5bf3", [{ sibling: "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d", side: "left" }], RFC6962_SHA256)
+      ),
+      true
+    );
+  });
+
+  it("throws on an unknown algorithm instead of returning false", async () => {
+    // "I cannot check this" must not look like "this proof is forged".
+    const leaf = sha256(Buffer.from("a")).toString("hex");
+    await assert.rejects(
+      () => verifyProof(proofWith(leaf, leaf, [], "sha3-512-tree")),
+      UnsupportedAlgorithmError
+    );
+  });
+});

@@ -23,6 +23,12 @@ export interface AnchorJob {
 }
 
 /** Full inclusion proof returned once anchoring is complete. */
+/** The original TrustBeat tree: leaf used as-is, `SHA-256(l || r)` parents. */
+export const LEGACY_SHA256 = "trustbeat-legacy-sha256";
+
+/** RFC 6962 / RFC 9162: `SHA-256(0x00 || entry)` leaves, `SHA-256(0x01 || l || r)` nodes. */
+export const RFC6962_SHA256 = "rfc6962-sha256";
+
 export interface AnchorProof {
   id: string;
   hash: string;
@@ -39,6 +45,14 @@ export interface AnchorProof {
   anchoredAt: string;
   clientRef: string | null;
   description: string | null;
+  /**
+   * Which Merkle construction produced `merkleRoot`, and therefore how
+   * `proofPath` must be folded. Proofs issued before this field existed omit
+   * it on the wire and are parsed as `trustbeat-legacy-sha256`.
+   */
+  merkleAlgorithm: string;
+  /** Leaves in the batch (RFC 6962 tree size); `null` if the API did not report it. */
+  treeSize: number | null;
 }
 
 /** Returned by anchorBatch() — groups all submitted items under one submission_id. */
@@ -160,6 +174,8 @@ export function parseProof(data: any): AnchorProof {
     anchoredAt: data.anchored_at,
     clientRef: data.client_ref ?? null,
     description: data.description ?? null,
+    merkleAlgorithm: data.merkle_algorithm ?? LEGACY_SHA256,
+    treeSize: data.tree_size ?? null,
   };
 }
 
