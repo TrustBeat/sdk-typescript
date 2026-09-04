@@ -25,9 +25,10 @@ export {
   RateLimitError,
   VerificationError,
   UnsupportedAlgorithmError,
+  IncompleteProofError,
 } from "./exceptions.js";
 
-export { verifyProof } from "./verify.js";
+export { verifyProof, verifyAuditEventProof } from "./verify.js";
 export { LEGACY_SHA256, RFC6962_SHA256 } from "./models.js";
 export { hashBuffer, hashString } from "./hash.js";
 export { verifyWebhookSignature } from "./webhook.js";

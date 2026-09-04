@@ -12,7 +12,12 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 
-import { verifyProof, VerificationError } from "../dist/index.js";
+import {
+  verifyProof,
+  verifyAuditEventProof,
+  VerificationError,
+} from "../dist/index.js";
+import { parseAuditEventProof } from "../dist/models.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -328,5 +333,96 @@ describe("shared RFC 6962 fixture", () => {
     const p = doc.proofs[0];
     const proof = proofWith("00".repeat(32), p.merkle_root, p.proof_path, p.merkle_algorithm);
     assert.equal(await verifyProof(proof), false);
+  });
+});
+
+// ── Audit event proof verification ────────────────────────────────────────────
+// Including the compatibility rule that matters most: a proof from a server
+// older than API 1.46 has no merkleRoot and must be reported as "cannot check",
+// never as "invalid".
+
+describe("verifyAuditEventProof", () => {
+  const sha = (b) => createHash("sha256").update(b).digest();
+
+  function rfc6962Proof(over = {}) {
+    const a = sha(Buffer.from("audit-a"));
+    const b = sha(Buffer.from("audit-b"));
+    const la = sha(Buffer.concat([Buffer.from([0x00]), a]));
+    const lb = sha(Buffer.concat([Buffer.from([0x00]), b]));
+    const root = sha(Buffer.concat([Buffer.from([0x01]), la, lb]));
+    return parseAuditEventProof({
+      event_id: "evt_1",
+      canonical_hash: a.toString("hex"),
+      batch_id: "batch_1",
+      leaf_index: 0,
+      merkle_path: [{ sibling: lb.toString("hex"), side: "right" }],
+      anchored_at: "2026-01-01T00:00:00Z",
+      merkle_root: root.toString("hex"),
+      tree_size: 2,
+      merkle_algorithm: "rfc6962-sha256",
+      ...over,
+    });
+  }
+
+  // Exactly what api.trustbeat.eu returns today: no merkle_root, no tree_size,
+  // no merkle_algorithm.
+  const OLD_SERVER = {
+    event_id: "evt_old",
+    canonical_hash: "ab".repeat(32),
+    batch_id: "batch_old",
+    leaf_index: 0,
+    merkle_path: [{ sibling: "cd".repeat(32), side: "right" }],
+    anchored_at: "2026-01-01T00:00:00Z",
+  };
+
+  it("verifies a valid RFC 6962 audit proof", async () => {
+    assert.equal(await verifyAuditEventProof(rfc6962Proof()), true);
+  });
+
+  it("returns false for a tampered root", async () => {
+    assert.equal(
+      await verifyAuditEventProof(rfc6962Proof({ merkle_root: "aa".repeat(32) })),
+      false
+    );
+  });
+
+  it("verifies a legacy audit proof under the legacy fold", async () => {
+    const a = sha(Buffer.from("audit-a"));
+    const b = sha(Buffer.from("audit-b"));
+    const root = sha(Buffer.concat([a, b]));
+    const p = rfc6962Proof({
+      canonical_hash: a.toString("hex"),
+      merkle_path: [{ sibling: b.toString("hex"), side: "right" }],
+      merkle_root: root.toString("hex"),
+      merkle_algorithm: "trustbeat-legacy-sha256",
+    });
+    assert.equal(await verifyAuditEventProof(p), true);
+  });
+
+  it("parses an old-server proof and defaults the algorithm to legacy", () => {
+    const p = parseAuditEventProof(OLD_SERVER);
+    assert.equal(p.eventId, "evt_old");
+    assert.equal(p.merkleRoot, undefined);
+    assert.equal(p.treeSize, undefined);
+    assert.equal(p.merkleAlgorithm, "trustbeat-legacy-sha256");
+    assert.equal(p.merklePath.length, 1);
+  });
+
+  it("throws IncompleteProofError rather than reporting an old-server proof invalid", async () => {
+    const p = parseAuditEventProof(OLD_SERVER);
+    await assert.rejects(() => verifyAuditEventProof(p), (e) => {
+      assert.equal(e.name, "IncompleteProofError");
+      assert.ok(!(e instanceof VerificationError));
+      assert.match(e.message, /merkleRoot/);
+      return true;
+    });
+  });
+
+  it("throws UnsupportedAlgorithmError for an unknown algorithm", async () => {
+    const p = rfc6962Proof({ merkle_algorithm: "sha3-future" });
+    await assert.rejects(() => verifyAuditEventProof(p), (e) => {
+      assert.equal(e.name, "UnsupportedAlgorithmError");
+      return true;
+    });
   });
 });

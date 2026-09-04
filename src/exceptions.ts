@@ -61,6 +61,22 @@ export class UnsupportedAlgorithmError extends TrustBeatError {
   }
 }
 
+/**
+ * The proof does not carry the fields needed to check it locally.
+ *
+ * Audit event proofs from servers older than API 1.46 have no `merkleRoot`, so
+ * there is nothing to fold the path against. Like `UnsupportedAlgorithmError`
+ * this is deliberately never a `false` return: "I cannot check this proof" must
+ * not be mistaken for "this proof is forged". Verify server-side via the API,
+ * or upgrade the server.
+ */
+export class IncompleteProofError extends TrustBeatError {
+  constructor(message: string) {
+    super(message);
+    this.name = "IncompleteProofError";
+  }
+}
+
 export class VerificationError extends TrustBeatError {
   constructor(message: string) {
     super(message, undefined, "VERIFICATION_ERROR");

@@ -402,6 +402,15 @@ export interface AuditEventProof {
   leafIndex:     number;
   merklePath:    AuditProofStep[];
   anchoredAt:    string;         // ISO 8601
+  /**
+   * The three below arrived in API 1.46. They are optional because a server
+   * older than that sends none of them, and this SDK must keep working against
+   * it — an absent `merkleRoot` is what `verifyAuditEventProof` reports as
+   * "cannot check" rather than "invalid".
+   */
+  merkleRoot?:      string;
+  treeSize?:        number;
+  merkleAlgorithm:  string;
 }
 
 /** Returned immediately (202) when an export job is created. */
@@ -441,6 +450,9 @@ export function parseAuditEventProof(d: any): AuditEventProof {
     leafIndex:     d.leaf_index,
     merklePath:    (d.merkle_path ?? []).map(parseAuditProofStep),
     anchoredAt:    d.anchored_at,
+    merkleRoot:      d.merkle_root ?? undefined,
+    treeSize:        d.tree_size ?? undefined,
+    merkleAlgorithm: d.merkle_algorithm || LEGACY_SHA256,
   };
 }
 

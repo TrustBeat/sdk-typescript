@@ -52,7 +52,7 @@ import {
   logMetadataToJson,
   looksLikeProof,
 } from "./models.js";
-import { verifyProof } from "./verify.js";
+import { verifyProof, verifyAuditEventProof } from "./verify.js";
 import { verifyWebhookSignature, WebhookVerifyOptions } from "./webhook.js";
 
 // ── Options types ─────────────────────────────────────────────────────────────
@@ -280,6 +280,18 @@ export class TrustBeat {
    */
   async verify(proof: AnchorProof): Promise<boolean> {
     return verifyProof(proof);
+  }
+
+  /**
+   * Verify an audit event's Merkle inclusion proof locally. The audit
+   * counterpart of {@link verify}.
+   *
+   * Throws `IncompleteProofError` if the proof has no `merkleRoot`, which is
+   * what a server older than API 1.46 returns. That is "cannot check", not
+   * "invalid" — verify server-side, or re-fetch from an upgraded server.
+   */
+  async verifyAuditEvent(proof: AuditEventProof): Promise<boolean> {
+    return verifyAuditEventProof(proof);
   }
 
   // ── File helpers (Node.js only) ────────────────────────────────────────────

@@ -110,3 +110,23 @@ Every proof declares how it must be folded, in `proof.merkleAlgorithm`:
 the field existed and is legacy. An algorithm this SDK version does not implement
 throws `UnsupportedAlgorithmError` rather than returning `false` — "cannot check"
 is not "invalid".
+
+### Audit event proofs
+
+`verifyAuditEvent()` folds an audit event proof the same way:
+
+```ts
+import { IncompleteProofError } from "@trustbeat/sdk";
+
+const proof = await tb.getAuditEventProof(eventId);
+try {
+  console.log(await tb.verifyAuditEvent(proof));
+} catch (e) {
+  if (!(e instanceof IncompleteProofError)) throw e;
+  // The server predates API 1.46 and sent no merkleRoot, so there is nothing to
+  // fold against. The proof is not invalid — verify it server-side instead.
+}
+```
+
+Treating that error as a failed proof would be wrong: it means "cannot check",
+not "tampered".

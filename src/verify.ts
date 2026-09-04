@@ -15,8 +15,12 @@
  */
 
 import { createHash, timingSafeEqual as nodeTSE } from "node:crypto";
-import { AnchorProof, LEGACY_SHA256, RFC6962_SHA256 } from "./models.js";
-import { UnsupportedAlgorithmError, VerificationError } from "./exceptions.js";
+import { AnchorProof, AuditEventProof, LEGACY_SHA256, RFC6962_SHA256 } from "./models.js";
+import {
+  IncompleteProofError,
+  UnsupportedAlgorithmError,
+  VerificationError,
+} from "./exceptions.js";
 
 /** algorithm → [leaf prefix, node prefix] */
 const PREFIXES: Record<string, [Buffer, Buffer]> = {
@@ -104,4 +108,34 @@ export async function verifyProof(proof: AnchorProof): Promise<boolean> {
   // Constant-time comparison (both buffers must be same length)
   if (current.length !== expectedRoot.length) return false;
   return nodeTSE(current, expectedRoot);
+}
+
+/**
+ * Verify an audit event's Merkle inclusion proof locally (no network call).
+ *
+ * The audit counterpart of `verifyProof`, for the shape that names the leaf
+ * `canonicalHash` and the path `merklePath`.
+ *
+ * Returns `true` if valid, `false` if the computed root does not match.
+ *
+ * Throws `IncompleteProofError` when the proof carries no `merkleRoot`: servers
+ * before API 1.46 did not send one, so there is nothing to fold against. That is
+ * "cannot check", never "invalid". Throws `UnsupportedAlgorithmError` and
+ * `VerificationError` on the same terms as `verifyProof`.
+ */
+export async function verifyAuditEventProof(proof: AuditEventProof): Promise<boolean> {
+  if (!proof.merkleRoot) {
+    throw new IncompleteProofError(
+      "This audit event proof has no merkleRoot, so it cannot be folded locally. " +
+        "The server that issued it predates API 1.46. Verify it server-side via the " +
+        "API, or re-fetch it from an upgraded server."
+    );
+  }
+  // Reuse the anchor fold: the two shapes differ only in field names.
+  return verifyProof({
+    hash:            proof.canonicalHash,
+    merkleRoot:      proof.merkleRoot,
+    proofPath:       proof.merklePath,
+    merkleAlgorithm: proof.merkleAlgorithm,
+  } as unknown as AnchorProof);
 }

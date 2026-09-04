@@ -139,7 +139,17 @@ try {
     if (proof.leafIndex < 0 || !Array.isArray(proof.merklePath)) fail("verify-audit: invalid leaf_index/merkle_path");
     const events = await c.listAuditEvents({ trailCategory: process.env.TB_AUDIT_CATEGORY });
     if (!events.some((e) => e.eventId === id)) fail(`verify-audit: ${id} not returned by listAuditEvents`);
-    console.log(`OK audit id=${id} batch=${proof.batchId.slice(0, 12)}… leaf=${proof.leafIndex}`);
+    // Actually fold the path — everything above is structure. A server before
+    // API 1.46 sends no merkleRoot, which the SDK reports as "cannot check".
+    let verdict;
+    try {
+      if (!(await c.verifyAuditEvent(proof))) fail(`verify-audit: Merkle verification FAILED for ${id}`);
+      verdict = `verified algo=${proof.merkleAlgorithm} size=${proof.treeSize}`;
+    } catch (e) {
+      if (e.name !== "IncompleteProofError") throw e;
+      verdict = "unverifiable (server predates API 1.46)";
+    }
+    console.log(`OK audit id=${id} batch=${proof.batchId.slice(0, 12)}… leaf=${proof.leafIndex} ${verdict}`);
 
   } else if (cmd === "verify-sig") {
     const doc = readFileSync(process.env.TB_SIG_DOC);
