@@ -5,7 +5,7 @@
  * Requires Node 18+ (globalThis.fetch, crypto.subtle) or a modern browser.
  */
 
-export { TrustBeat } from "./client.js";
+export { TrustBeat, MAX_BATCH_SIZE } from "./client.js";
 export type { TrustBeatOptions, AnchorOptions, AnchorWaitOptions } from "./client.js";
 
 export type {

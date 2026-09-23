@@ -67,6 +67,27 @@ export interface TrustBeatOptions {
   baseUrl?: string;
   /** Request timeout in milliseconds. Defaults to 30 000. */
   timeoutMs?: number;
+  /**
+   * How many times a rate-limited (HTTP 429) request is retried, waiting the `Retry-After`
+   * the server sends (1 s, 2 s, 4 s … if it sends none). `0` disables retrying. Defaults to 2.
+   * Only 429 is retried: the API refuses a rate-limited submission before queuing it, so a
+   * retry cannot anchor a hash twice.
+   */
+  maxRetries?: number;
+}
+
+/** Most hashes one `anchorBatch` call may carry — the API's limit. */
+export const MAX_BATCH_SIZE = 1000;
+
+/** A 429 asking to wait longer than this is thrown at once rather than waited out. */
+const MAX_RETRY_WAIT_SECS = 60;
+
+/** The `Retry-After` header in seconds, or undefined when absent or not a number. */
+function retryAfterSecs(response: Response): number | undefined {
+  const value = response.headers?.get?.("Retry-After");
+  if (value === null || value === undefined || value.trim() === "") return undefined;
+  const secs = Number(value);
+  return Number.isFinite(secs) ? Math.max(0, secs) : undefined;
 }
 
 export interface AnchorOptions {
@@ -89,17 +110,36 @@ export class TrustBeat {
   private readonly apiKey: string;
   private readonly baseUrl: string;
   private readonly timeoutMs: number;
+  private readonly maxRetries: number;
+  /** How the client waits between 429 retries. Replaced in tests. */
+  private sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms));
 
   constructor(options: TrustBeatOptions) {
     if (!options.apiKey) throw new Error("apiKey must not be empty");
+    if ((options.maxRetries ?? 0) < 0) throw new Error("maxRetries must not be negative");
     this.apiKey = options.apiKey;
     this.baseUrl = (options.baseUrl ?? "https://api.trustbeat.eu/v1").replace(/\/$/, "");
     this.timeoutMs = options.timeoutMs ?? 30_000;
+    this.maxRetries = options.maxRetries ?? 2;
   }
 
   // ── Low-level HTTP ─────────────────────────────────────────────────────────
 
-  private async request<T>(
+  /** One request, retrying HTTP 429 up to `maxRetries` times; any other outcome is returned. */
+  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.requestOnce<T>(method, path, body);
+      } catch (err) {
+        if (!(err instanceof RateLimitError) || attempt >= this.maxRetries) throw err;
+        const wait = err.retryAfter ?? 2 ** attempt;
+        if (wait > MAX_RETRY_WAIT_SECS) throw err;
+        await this.sleep(wait * 1000);
+      }
+    }
+  }
+
+  private async requestOnce<T>(
     method: string,
     path: string,
     body?: unknown
@@ -143,7 +183,7 @@ export class TrustBeat {
         case 402: throw new QuotaError(msg);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         case 404: throw new NotFoundError(msg, (data as any)?.error?.code ?? "NOT_FOUND");
-        case 429: throw new RateLimitError(msg);
+        case 429: throw new RateLimitError(msg, retryAfterSecs(response));
         default:  throw new TrustBeatError(msg, response.status);
       }
     }
@@ -171,13 +211,16 @@ export class TrustBeat {
   }
 
   /**
-   * Submit up to 100 SHA-256 hashes in a single batch request.
+   * Submit up to 1,000 SHA-256 hashes in a single batch request.
    * Returns a BatchSubmission with a submission_id grouping all items.
+   *
+   * The submission is all-or-nothing: if the call fails, none of the hashes was queued.
+   * Servers deployed before 2026-09-26 accept at most 100 and answer a larger batch with 400.
    */
   async anchorBatch(hashes: string[], options: AnchorOptions = {}): Promise<BatchSubmission> {
     if (hashes.length === 0) return { submissionId: "", items: [] };
-    if (hashes.length > 100) {
-      throw new Error("anchorBatch: maximum 100 hashes per request");
+    if (hashes.length > MAX_BATCH_SIZE) {
+      throw new Error(`anchorBatch: maximum ${MAX_BATCH_SIZE} hashes per request`);
     }
     const body: Record<string, unknown> = {
       hashes: hashes.map((h) => ({ hash: h, hash_algorithm: "SHA-256" })),

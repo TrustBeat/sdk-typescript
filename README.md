@@ -83,6 +83,29 @@ older than 5 minutes by default (`toleranceSecs` option to override).
 Portable proof bundles for offline verification: `exportAiDecision(id)`,
 `exportVerification(id)`, `exportLog(id)` — each returns raw JSON bundle bytes.
 
+## Batches and rate limits
+
+A batch carries up to **1,000** hashes and is all-or-nothing: if the call fails, none of them
+was queued. (API servers deployed before 26 Sep 2026 accept at most 100.)
+
+Anchoring is rate-limited per account (see your plan). A rate-limited request (HTTP 429) is
+**retried automatically**, waiting the `Retry-After` the server sends — twice by default.
+Retrying is always safe: a refused submission was never queued. When the retries run out you
+get the rate-limit error, carrying the wait the server asked for.
+
+```ts
+import { TrustBeat, RateLimitError } from "trustbeat";
+
+const tb = new TrustBeat({ apiKey: "tb_live_...", maxRetries: 2 }); // 0 turns retrying off
+
+try {
+  const submission = await tb.anchorBatch(hashes);                  // up to 1,000
+} catch (err) {
+  if (err instanceof RateLimitError) console.log(`still limited; wait ${err.retryAfter} s`);
+  else throw err;
+}
+```
+
 ## Requirements
 
 - Node.js 18+ (uses native `fetch` and `crypto`)

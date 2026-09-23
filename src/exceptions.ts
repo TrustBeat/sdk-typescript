@@ -38,11 +38,21 @@ export class QuotaError extends TrustBeatError {
   }
 }
 
-/** 429 — too many requests. */
+/**
+ * 429 — too many requests.
+ *
+ * The client already retries a 429 automatically (see `maxRetries`); this is thrown once
+ * those retries are spent. A refused submission was not queued, so retrying it can never
+ * anchor a hash twice.
+ */
 export class RateLimitError extends TrustBeatError {
-  constructor(message: string) {
+  /** Seconds the server asked to wait before the next attempt (`Retry-After`), if given. */
+  readonly retryAfter: number | undefined;
+
+  constructor(message: string, retryAfter?: number) {
     super(message, 429, "RATE_LIMITED");
     this.name = "RateLimitError";
+    this.retryAfter = retryAfter;
   }
 }
 

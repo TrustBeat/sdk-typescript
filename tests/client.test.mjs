@@ -148,11 +148,23 @@ describe("anchorBatch()", () => {
     restoreFetch();
   });
 
-  it("over 100 hashes throws Error", async () => {
+  it("over 1000 hashes throws Error without a request", async () => {
+    let fetchCalled = false;
+    originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => { fetchCalled = true; return {}; };
     await assert.rejects(
-      () => new TrustBeat({ apiKey: "tb_live_test" }).anchorBatch(Array(101).fill("a".repeat(64))),
-      /maximum 100/
+      () => new TrustBeat({ apiKey: "tb_live_test" }).anchorBatch(Array(1001).fill("a".repeat(64))),
+      /maximum 1000/
     );
+    assert.equal(fetchCalled, false);
+    restoreFetch();
+  });
+
+  it("1000 hashes go in one request", async () => {
+    const captured = captureFetch(202, { submission_id: "sub_1", accepted: [], total: 1000 });
+    await new TrustBeat({ apiKey: "tb_live_test" }).anchorBatch(Array(1000).fill("a".repeat(64)));
+    assert.equal(JSON.parse(captured().body).hashes.length, 1000);
+    restoreFetch();
   });
 });
 
@@ -276,7 +288,7 @@ describe("error handling", () => {
   it("429 throws RateLimitError", async () => {
     stubFetch(429, { error: { message: "Slow down" } });
     await assert.rejects(
-      () => new TrustBeat({ apiKey: "tb_live_test" }).anchor("a".repeat(64)),
+      () => new TrustBeat({ apiKey: "tb_live_test", maxRetries: 0 }).anchor("a".repeat(64)),
       (err) => { assert.ok(err instanceof RateLimitError); return true; }
     );
   });
@@ -610,5 +622,102 @@ describe("exportVerification()", () => {
     assert.ok(blob instanceof Uint8Array);
     assert.ok(Buffer.from(blob).toString().includes("trustbeat.verification.proof"));
     assert.ok(requestedUrl.endsWith("/v1/verify/ver-1/export"));
+  });
+});
+
+// ── 429 retry ─────────────────────────────────────────────────────────────────
+
+/** Answers each call with the next scripted response; records how many calls were made. */
+function scriptFetch(responses) {
+  originalFetch = globalThis.fetch;
+  const calls = { count: 0 };
+  globalThis.fetch = async () => {
+    const r = responses[Math.min(calls.count, responses.length - 1)];
+    calls.count++;
+    const headers = new Headers(r.headers ?? {});
+    return { ok: r.status >= 200 && r.status < 300, status: r.status, headers, text: async () => JSON.stringify(r.body) };
+  };
+  return calls;
+}
+
+const limited = (retryAfter) => ({
+  status: 429,
+  headers: retryAfter === undefined ? {} : { "Retry-After": retryAfter },
+  body: { error: { code: "RATE_LIMITED", message: "Slow down" } },
+});
+
+/** A client whose waits are recorded instead of slept. */
+function clientRecordingSleeps(options = {}) {
+  const client = new TrustBeat({ apiKey: "tb_live_test", ...options });
+  const sleeps = [];
+  client.sleep = async (ms) => { sleeps.push(ms); };
+  return { client, sleeps };
+}
+
+describe("429 retry", () => {
+  afterEach(restoreFetch);
+
+  it("waits Retry-After, then succeeds", async () => {
+    const calls = scriptFetch([limited("3"), { status: 202, body: anchorAcceptedPayload() }]);
+    const { client, sleeps } = clientRecordingSleeps();
+    const job = await client.anchor("a".repeat(64));
+    assert.equal(job.id, "track-1");
+    assert.equal(calls.count, 2);
+    assert.deepEqual(sleeps, [3000]);
+  });
+
+  it("gives up after maxRetries, with retryAfter on the error", async () => {
+    const calls = scriptFetch([limited("2")]);
+    const { client, sleeps } = clientRecordingSleeps({ maxRetries: 2 });
+    await assert.rejects(() => client.anchor("a".repeat(64)), (err) => {
+      assert.ok(err instanceof RateLimitError);
+      assert.equal(err.retryAfter, 2);
+      assert.equal(err.status, 429);
+      return true;
+    });
+    assert.equal(calls.count, 3);
+    assert.equal(sleeps.length, 2);
+  });
+
+  it("maxRetries: 0 disables retrying", async () => {
+    const calls = scriptFetch([limited("1")]);
+    const { client, sleeps } = clientRecordingSleeps({ maxRetries: 0 });
+    await assert.rejects(() => client.anchor("a".repeat(64)), RateLimitError);
+    assert.equal(calls.count, 1);
+    assert.deepEqual(sleeps, []);
+  });
+
+  it("backs off 1 s, 2 s without Retry-After", async () => {
+    scriptFetch([limited(), limited(), { status: 202, body: anchorAcceptedPayload() }]);
+    const { client, sleeps } = clientRecordingSleeps();
+    await client.anchor("a".repeat(64));
+    assert.deepEqual(sleeps, [1000, 2000]);
+  });
+
+  it("a wait over 60 s is thrown, not waited out", async () => {
+    scriptFetch([limited("120")]);
+    const { client, sleeps } = clientRecordingSleeps();
+    await assert.rejects(() => client.anchor("a".repeat(64)), (err) => err.retryAfter === 120);
+    assert.deepEqual(sleeps, []);
+  });
+
+  it("other errors are not retried", async () => {
+    // A 5xx may come after the hash was queued; retrying it could anchor it twice.
+    const calls = scriptFetch([{ status: 503, body: { error: { message: "busy" } } }]);
+    const { client, sleeps } = clientRecordingSleeps();
+    await assert.rejects(() => client.anchor("a".repeat(64)), TrustBeatError);
+    assert.equal(calls.count, 1);
+    assert.deepEqual(sleeps, []);
+  });
+
+  it("batch submissions are retried too", async () => {
+    const calls = scriptFetch([limited("1"), { status: 202, body: { submission_id: "sub_1", accepted: [], total: 0 } }]);
+    const { client } = clientRecordingSleeps();
+    await client.anchorBatch(["a".repeat(64)]);
+    assert.equal(calls.count, 2);
+  });
+
+  it("a negative maxRetries is rejected", () => {
+    assert.throws(() => new TrustBeat({ apiKey: "tb_live_test", maxRetries: -1 }), /maxRetries/);
   });
 });
