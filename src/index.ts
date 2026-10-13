@@ -16,6 +16,7 @@ export type {
   LogSource, LogTimeEnvelope, LogSourceIdentity, LogMetadata,
   LogAnchorJob, LogStatus, LogAnchorListItem, LogProof,
   SignaturePreservationRecord, SignaturePreservationStep, SignaturePreservationReport,
+  SignaturePreservationDeletion,
 } from "./models.js";
 
 export {

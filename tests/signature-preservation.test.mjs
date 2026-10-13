@@ -137,4 +137,21 @@ describe("Signature Preservation", () => {
     assert.deepEqual(JSON.parse(calls[0].body), SUBMISSION);
     assert.equal(new TextDecoder().decode(out), "%PDF-1.7");
   });
+
+  it("delete sends the confirmation and maps the result", async () => {
+    stub(200, { id: "01REC", deleted_at: "2026-10-13T11:00:00Z", peo_sha256: "d".repeat(64) });
+    const d = await tb().deleteSignaturePreservation("01REC", "01REC");
+    assert.equal(calls[0].method, "DELETE");
+    assert.ok(calls[0].url.endsWith("/v1/signature-preservation/01REC?confirm=01REC"));
+    assert.deepEqual(d, { id: "01REC", deletedAt: "2026-10-13T11:00:00Z", peoSha256: "d".repeat(64) });
+  });
+
+  it("delete with a wrong confirmation is a TrustBeatError CONFIRMATION_REQUIRED; unknown record NotFoundError", async () => {
+    stub(400, { error: { code: "CONFIRMATION_REQUIRED", message: "Repeat the id" } });
+    await assert.rejects(() => tb().deleteSignaturePreservation("01REC", "01OTHER"),
+      (e) => e instanceof TrustBeatError && e.status === 400 && e.code === "CONFIRMATION_REQUIRED");
+    restore();
+    stub(404, { error: { code: "NOT_FOUND", message: "Record not found." } });
+    await assert.rejects(() => tb().deleteSignaturePreservation("nope", "nope"), NotFoundError);
+  });
 });

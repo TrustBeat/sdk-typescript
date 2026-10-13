@@ -53,8 +53,10 @@ import {
   looksLikeProof,
   SignaturePreservationRecord,
   SignaturePreservationReport,
+  SignaturePreservationDeletion,
   parseSignaturePreservationRecord,
   parseSignaturePreservationReport,
+  parseSignaturePreservationDeletion,
 } from "./models.js";
 import { verifyProof, verifyAuditEventProof } from "./verify.js";
 import { verifyWebhookSignature, WebhookVerifyOptions } from "./webhook.js";
@@ -188,7 +190,8 @@ export class TrustBeat {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         case 404: throw new NotFoundError(msg, (data as any)?.error?.code ?? "NOT_FOUND");
         case 429: throw new RateLimitError(msg, retryAfterSecs(response));
-        default:  throw new TrustBeatError(msg, response.status);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        default:  throw new TrustBeatError(msg, response.status, (data as any)?.error?.code);
       }
     }
 
@@ -841,6 +844,21 @@ export class TrustBeat {
   }
 
   /**
+   * Delete a record before the end of its preservation period. **Final**: the Preservation Evidence
+   * Object, the signatures and the record are removed and its evidence record is no longer served;
+   * download the package first if you may need it. The account's email address is notified.
+   *
+   * @param confirm The record id again — a guard against deleting the wrong record. A mismatch is a
+   *   `TrustBeatError` with status 400 and code `CONFIRMATION_REQUIRED`.
+   */
+  async deleteSignaturePreservation(recordId: string, confirm: string): Promise<SignaturePreservationDeletion> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = await this.request<any>("DELETE",
+      `/signature-preservation/${encodeURIComponent(recordId)}?confirm=${encodeURIComponent(confirm)}`);
+    return parseSignaturePreservationDeletion(data);
+  }
+
+  /**
    * Verify a signed file presented now against its record: the eight-step report. `submission` is
    * `trustbeat-signature extract` of the file presented now. A file that does not match gives a
    * report with failed steps, not an error. Does not count against the quota.
@@ -891,7 +909,7 @@ export class TrustBeat {
         case 402: throw new QuotaError(msg);
         case 404: throw new NotFoundError(msg, code ?? "NOT_FOUND");
         case 429: throw new RateLimitError(msg, retryAfterSecs(res));
-        default:  throw new TrustBeatError(msg, res.status);
+        default:  throw new TrustBeatError(msg, res.status, code);
       }
     }
     return new Uint8Array(await res.arrayBuffer());

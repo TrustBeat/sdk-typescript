@@ -694,6 +694,18 @@ export interface SignaturePreservationReport {
   raw: Record<string, unknown>;
 }
 
+/** A deleted Signature Preservation record. Deletion is final; `peoSha256` stays in its batch's hash tree. */
+export interface SignaturePreservationDeletion {
+  id: string;
+  deletedAt: string;
+  peoSha256: string;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function parseSignaturePreservationDeletion(d: any): SignaturePreservationDeletion {
+  return { id: d.id, deletedAt: d.deleted_at, peoSha256: d.peo_sha256 };
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function parseSignaturePreservationRecord(d: any): SignaturePreservationRecord {
   return {

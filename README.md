@@ -91,6 +91,9 @@ const now = await readFile("now.submission.json", "utf8");
 const report = await tb.verifySignaturePreservation(rec.id, now);
 console.log(report.result, report.steps.map((s) => [s.step, s.name, s.result]));
 const pdf = await tb.verifySignaturePreservationPdf(rec.id, now);
+
+// Delete a record — final; the id is repeated as a guard, and the account is emailed
+await tb.deleteSignaturePreservation(rec.id, rec.id);
 ```
 
 Verifying later works with the original file only: `trustbeat-signature extract` it again and pass that
