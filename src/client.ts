@@ -51,6 +51,10 @@ import {
   parseLogProof,
   logMetadataToJson,
   looksLikeProof,
+  SignaturePreservationRecord,
+  SignaturePreservationReport,
+  parseSignaturePreservationRecord,
+  parseSignaturePreservationReport,
 } from "./models.js";
 import { verifyProof, verifyAuditEventProof } from "./verify.js";
 import { verifyWebhookSignature, WebhookVerifyOptions } from "./webhook.js";
@@ -792,6 +796,107 @@ export class TrustBeat {
     }
   }
 
+  // ── Signature Preservation (not yet available: the API answers 404 until launch) ──
+
+  /**
+   * Preserve the signatures of a signed file.
+   *
+   * `submission` is the JSON that `trustbeat-signature extract <file>` writes — as text or an already
+   * parsed object. It holds the signatures and the digests binding them to the file; the signed file
+   * itself never reaches TrustBeat, and this SDK does not read signed files. Counts as one anchor
+   * against the monthly quota. A submission the API does not accept is a TrustBeatError (HTTP 400,
+   * INVALID_SUBMISSION).
+   */
+  async preserveSignatures(
+    submission: string | Record<string, unknown>,
+    options: { clientRef?: string } = {},
+  ): Promise<SignaturePreservationRecord> {
+    const q = options.clientRef !== undefined ? `?client_ref=${encodeURIComponent(options.clientRef)}` : "";
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = await this.request<any>("POST", `/signature-preservation${q}`, submissionBody(submission));
+    return parseSignaturePreservationRecord(data);
+  }
+
+  /** One preserved signed file, with its signatures and their EU DSS findings. */
+  async getSignaturePreservation(recordId: string): Promise<SignaturePreservationRecord> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = await this.request<any>("GET", `/signature-preservation/${encodeURIComponent(recordId)}`);
+    return parseSignaturePreservationRecord(data);
+  }
+
+  /** The account's preserved signed files, newest first (without their signatures). */
+  async listSignaturePreservations(options: { limit?: number } = {}): Promise<SignaturePreservationRecord[]> {
+    const q = options.limit !== undefined ? `?limit=${options.limit}` : "";
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = await this.request<any>("GET", `/signature-preservation${q}`);
+    return (data.records ?? []).map(parseSignaturePreservationRecord);
+  }
+
+  /**
+   * The record's package (ZIP) for verification without TrustBeat. Keep it next to the original file;
+   * `trustbeat-signature verify <file> --package <zip>` checks both offline.
+   */
+  async downloadSignaturePreservationPackage(recordId: string): Promise<Uint8Array> {
+    return this.requestBinary("GET", `/signature-preservation/${encodeURIComponent(recordId)}/package`);
+  }
+
+  /**
+   * Verify a signed file presented now against its record: the eight-step report. `submission` is
+   * `trustbeat-signature extract` of the file presented now. A file that does not match gives a
+   * report with failed steps, not an error. Does not count against the quota.
+   */
+  async verifySignaturePreservation(
+    recordId: string,
+    submission: string | Record<string, unknown>,
+  ): Promise<SignaturePreservationReport> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = await this.request<any>("POST", `/signature-preservation/${encodeURIComponent(recordId)}/verify`,
+      submissionBody(submission));
+    return parseSignaturePreservationReport(data);
+  }
+
+  /** The same report as {@link verifySignaturePreservation}, as a PDF document. */
+  async verifySignaturePreservationPdf(
+    recordId: string,
+    submission: string | Record<string, unknown>,
+  ): Promise<Uint8Array> {
+    return this.requestBinary("POST", `/signature-preservation/${encodeURIComponent(recordId)}/verify?format=pdf`,
+      submissionBody(submission));
+  }
+
+  /** A request whose success body is binary (ZIP, PDF); errors are mapped as in requestOnce. */
+  private async requestBinary(method: string, path: string, body?: unknown): Promise<Uint8Array> {
+    const headers: Record<string, string> = { Authorization: `Bearer ${this.apiKey}` };
+    if (body !== undefined) headers["Content-Type"] = "application/json";
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    let res: Response;
+    try {
+      res = await fetch(`${this.baseUrl}${path}`, {
+        method, headers, body: body !== undefined ? JSON.stringify(body) : undefined, signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!res.ok) {
+      let msg = `HTTP ${res.status}`;
+      let code: string | undefined;
+      try {
+        const e = JSON.parse(await res.text())?.error;
+        msg = e?.message ?? msg;
+        code = e?.code;
+      } catch { /* not JSON */ }
+      switch (res.status) {
+        case 401: throw new AuthError(msg);
+        case 402: throw new QuotaError(msg);
+        case 404: throw new NotFoundError(msg, code ?? "NOT_FOUND");
+        case 429: throw new RateLimitError(msg, retryAfterSecs(res));
+        default:  throw new TrustBeatError(msg, res.status);
+      }
+    }
+    return new Uint8Array(await res.arrayBuffer());
+  }
+
   // ── Webhooks ───────────────────────────────────────────────────────────────
 
   /**
@@ -811,3 +916,13 @@ export class TrustBeat {
   }
 
 }
+
+/** The extractor's submission as an object; text is parsed, nothing is changed. */
+function submissionBody(submission: string | Record<string, unknown>): Record<string, unknown> {
+  const parsed = typeof submission === "string" ? JSON.parse(submission) : submission;
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("a submission is a JSON object, as written by `trustbeat-signature extract`");
+  }
+  return parsed as Record<string, unknown>;
+}
+

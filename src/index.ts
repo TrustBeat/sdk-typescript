@@ -15,6 +15,7 @@ export type {
   AuditProofStep, AuditEvent, AuditEventProof, AuditExportJob,
   LogSource, LogTimeEnvelope, LogSourceIdentity, LogMetadata,
   LogAnchorJob, LogStatus, LogAnchorListItem, LogProof,
+  SignaturePreservationRecord, SignaturePreservationStep, SignaturePreservationReport,
 } from "./models.js";
 
 export {

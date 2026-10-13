@@ -644,3 +644,87 @@ export function logMetadataToJson(m: LogMetadata): Record<string, unknown> {
   }
   return out;
 }
+
+// ── Signature Preservation ────────────────────────────────────────────────────
+
+/**
+ * A preserved signed file (`/v1/signature-preservation`).
+ *
+ * `status`: "pending" (queued for the next anchoring cycle), "anchored" (its RFC 4998 evidence
+ * record is being made) or "preserved" (the evidence record exists). `signatures` is null in a list;
+ * each entry is the API's object (signer, EU DSS indication, qualification).
+ */
+export interface SignaturePreservationRecord {
+  id: string;
+  status: "pending" | "anchored" | "preserved";
+  createdAt: string;
+  clientRef: string | null;
+  containerFormat: string;
+  containerName: string;
+  containerSha256: string;
+  signatureCount: number;
+  /** SHA-256 of the Preservation Evidence Object — the anchored leaf. */
+  peoSha256: string;
+  profile: string;
+  preserveUntil: string;
+  evidenceRecordStatus: "pending" | "ready";
+  evidenceRecordUrl: string | null;
+  signatures: Array<Record<string, unknown>> | null;
+}
+
+/** One step of a verification report. */
+export interface SignaturePreservationStep {
+  step: number;
+  name: string;
+  title: string;
+  result: "passed" | "failed" | "indeterminate" | "not-applicable";
+  checkedBy: string[];
+  details: string[];
+}
+
+/**
+ * The report of `POST /v1/signature-preservation/{id}/verify`. `raw` is the full JSON report
+ * (signatures now and at preservation, evidence-record time-stamps).
+ */
+export interface SignaturePreservationReport {
+  recordId: string;
+  result: "passed" | "failed" | "indeterminate";
+  claim: string;
+  steps: SignaturePreservationStep[];
+  raw: Record<string, unknown>;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function parseSignaturePreservationRecord(d: any): SignaturePreservationRecord {
+  return {
+    id:                   d.id,
+    status:               d.status,
+    createdAt:            d.created_at,
+    clientRef:            d.client_ref ?? null,
+    containerFormat:      d.container?.format ?? "",
+    containerName:        d.container?.name ?? "",
+    containerSha256:      d.container?.sha256 ?? "",
+    signatureCount:       d.signature_count ?? 0,
+    peoSha256:            d.peo?.sha256 ?? "",
+    profile:              d.preservation?.profile ?? "",
+    preserveUntil:        d.preservation?.preserve_until ?? "",
+    evidenceRecordStatus: d.evidence_record?.status ?? "pending",
+    evidenceRecordUrl:    d.evidence_record?.download_url ?? null,
+    signatures:           d.signatures ?? null,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function parseSignaturePreservationReport(d: any): SignaturePreservationReport {
+  return {
+    recordId: d.record_id,
+    result:   d.result,
+    claim:    d.claim ?? "",
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    steps:    (d.steps ?? []).map((s: any) => ({
+      step: s.step, name: s.name, title: s.title ?? "", result: s.result,
+      checkedBy: s.checked_by ?? [], details: s.details ?? [],
+    })),
+    raw: d,
+  };
+}

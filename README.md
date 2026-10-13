@@ -62,6 +62,41 @@ const proof = await tb.anchorLogWait(job.id);
 console.log(proof.verificationStatus); // "VERIFIED"
 ```
 
+## Signature Preservation (not yet available)
+
+> **Not yet available** — the API answers `404` until the product is launched.
+
+Preserves the electronic signatures of a signed file (PAdES, XAdES, CAdES, ASiC-E, ASiC-S) for 30
+years. **The signed file never reaches TrustBeat, and this SDK does not read it:** the
+`trustbeat-signature` extractor reads it on your machine and writes a submission JSON (the signatures and the digests that
+bind them to the file), which the SDK sends unchanged.
+
+```bash
+trustbeat-signature extract contract.pdf --out contract.submission.json
+```
+
+```ts
+import { readFile, writeFile } from "node:fs/promises";
+
+const submission = await readFile("contract.submission.json", "utf8");
+
+let rec = await tb.preserveSignatures(submission, { clientRef: "contract-17" }); // one anchor against the quota
+rec = await tb.getSignaturePreservation(rec.id);       // status: pending -> anchored -> preserved
+const recs = await tb.listSignaturePreservations({ limit: 50 });
+
+await writeFile("package.zip", await tb.downloadSignaturePreservationPackage(rec.id)); // offline verification
+
+// Years later: the file presented now, extracted again
+const now = await readFile("now.submission.json", "utf8");
+const report = await tb.verifySignaturePreservation(rec.id, now);
+console.log(report.result, report.steps.map((s) => [s.step, s.name, s.result]));
+const pdf = await tb.verifySignaturePreservationPdf(rec.id, now);
+```
+
+Verifying later works with the original file only: `trustbeat-signature extract` it again and pass that
+submission. A file that does not match is a report with failed steps, not an error. Offline, without
+TrustBeat: `trustbeat-signature verify contract.pdf --package package.zip`.
+
 ## Webhooks
 
 If your account has a webhook secret configured, every delivery is signed with
