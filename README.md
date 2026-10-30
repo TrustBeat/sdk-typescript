@@ -80,7 +80,7 @@ import { readFile, writeFile } from "node:fs/promises";
 
 const submission = await readFile("contract.submission.json", "utf8");
 
-let rec = await tb.preserveSignatures(submission, { clientRef: "contract-17" }); // one anchor against the quota
+let rec = await tb.preserveSignatures(submission, { clientRef: "contract-17" }); // one preserved file of your Signature Preservation plan
 rec = await tb.getSignaturePreservation(rec.id);       // status: pending -> anchored -> preserved
 const recs = await tb.listSignaturePreservations({ limit: 50 });
 
@@ -99,6 +99,12 @@ await tb.deleteSignaturePreservation(rec.id, rec.id);
 Verifying later works with the original file only: `trustbeat-signature extract` it again and pass that
 submission. A file that does not match is a report with failed steps, not an error. Offline, without
 TrustBeat: `trustbeat-signature verify contract.pdf --package package.zip`.
+
+Preserving needs a Signature Preservation subscription (Starter €19 / month for 100 files, Business €299 /
+month for 2,000; no free trial). Without one the call fails with HTTP 402 — `QuotaError`, whose message
+says `SUBSCRIPTION_REQUIRED` and gives the billing link. Over the monthly allowance the file is still preserved
+and billed per file. It does not use Document Anchoring quota, and reading, downloading, verifying and
+deleting records never need a plan.
 
 ## Webhooks
 
