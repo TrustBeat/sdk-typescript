@@ -3,8 +3,11 @@
 # This workflow lives at the root of TrustBeat/sdk-typescript (mirrored from
 # eu-security-app sdk/typescript). It does NOT run in the monorepo.
 #
-# Auth: NPM_TOKEN secret (npm automation/granular token with publish rights).
-# Provenance is attached via OIDC (id-token: write) — requires a public repo.
+# Auth: npm trusted publishing (OIDC, id-token: write) — no token. Configured on
+# npmjs.com (package trustbeat → Settings → Trusted Publisher: TrustBeat/sdk-typescript,
+# publish.yml, allowed action "publish"). Needs npm >= 11.5.1 and Node >= 22.14.
+# The former NPM_TOKEN secret expired (90-day limit) and failed the 0.6.0 publish.
+# Provenance is attached automatically — requires a public repo.
 name: Publish to npm
 
 on:
@@ -19,15 +22,21 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
-      id-token: write   # npm provenance
+      id-token: write   # npm trusted publishing + provenance
       contents: read
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
-      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af  # v4.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
-          node-version: '20'
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
+
+      # Trusted publishing silently falls back to (missing) token auth on an older npm.
+      - name: Check npm supports trusted publishing
+        run: |
+          v=$(npm --version); echo "npm $v"
+          [ "$(printf '%s\n' 11.5.1 "$v" | sort -V | head -1)" = 11.5.1 ] || { echo "::error::npm $v < 11.5.1"; exit 1; }
 
       - name: Verify tag matches package version
         if: startsWith(github.ref, 'refs/tags/')
@@ -45,8 +54,6 @@ jobs:
 
       - name: Publish to npm
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       # Dogfood: qualified timestamp for the release tarball (npm pack in the
       # same run produces the same bytes npm publish uploaded).
