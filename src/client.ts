@@ -799,7 +799,7 @@ export class TrustBeat {
     }
   }
 
-  // ── Signature Preservation (not yet available: the API answers 404 until launch) ──
+  // ── Signature Preservation ──
 
   /**
    * Preserve the signatures of a signed file.
